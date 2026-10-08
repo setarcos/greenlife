@@ -5,7 +5,7 @@
 ```
 .
 ├── backend/    服务端：actix-web + diesel + PostgreSQL，提供 JWT 鉴权与权限管理
-└── frontend/   前端（尚未开始）
+└── frontend/   前端：Vue 3 + TypeScript + Vite（SPA，所有后端请求带 `/api` 前缀）
 ```
 
 ## 部署
@@ -106,9 +106,59 @@ curl -X POST http://127.0.0.1:8080/auth/login \
 
 ## 前端
 
-前端尚未开始，计划放在 `frontend/`。
+`frontend/` 是 Vue 3 + TypeScript + Vite 的单页应用，依赖 Pinia（登录态）和 vue-router（路由守卫）。
 
-建议的部署形态是**同源**：由反向代理提供前端静态资源，并把 `/auth`、`/admin`、`/staff`
-转发到本服务。这样不涉及跨域。
+### 页面与权限
 
+| 路由 | 谁能进 | 做什么 |
+|---|---|---|
+| `/login` | 所有人 | 登录 |
+| `/` | 已登录 | 「我的资料」：改自己的名字、改自己的密码 |
+| `/admin/users` | ADMIN | 用户表的增、删、查（`POST /admin/user/add`、`DELETE /admin/user/{id}`、`GET /admin/users`） |
+
+前端的路由守卫只是**界面层的便利**，真正的权限判定始终在服务端：
+`/admin/*` 由 `PermissionGuard::all(ADMIN)` 拦住，普通用户拿到的是 403。
+
+### 开发
+
+```bash
+cd frontend
+npm install
+npm run dev            # http://localhost:5173
+```
+
+开发服务器会把 `/api` 开头的请求转发给后端（见 `vite.config.ts`，默认目标
+`http://127.0.0.1:8080`），并**剥掉 `/api` 前缀** —— 与下面的 nginx 配置一致。
+所以开发时不用给后端加 CORS。
+
+```bash
+npm run build          # vue-tsc 类型检查 + 打包到 dist/
+npm run lint           # eslint 检查（有错时退出码非 0）
+npm run format         # prettier 格式化（.prettierrc.json：无分号、单引号、100 列）
+npm run preview        # 本地预览 dist/
+```
+
+### 部署：所有后端请求都带 `/api` 前缀
+
+前端调用的路径都是 `/api/...`（axios 的 `baseURL` 统一加，见 `src/api/http.ts`）。
+于是 nginx 只需要一条规则，`proxy_pass` 结尾的斜杠会**剥掉 `/api/`**，
+后端本身完全不需要知道这个前缀存在（`backend/` 的代码无需改动）：
+
+```nginx
+root /srv/greenlife/frontend/dist;
+
+location / {
+    try_files $uri $uri/ /index.html;   # SPA：刷新 /admin/users 也能落到 index.html
+}
+
+location /api/ {
+    proxy_pass http://127.0.0.1:8080/;
+}
+```
+
+推荐**同源**部署（前端静态资源和 API 同一个域名），这样不涉及跨域。
 若前端最终独立部署在其它域名下，需要先给服务端加 CORS 配置（**目前未配置**）。
+
+上线前请一并阅读上一节的反向代理注意事项：登录限流按 peer IP 计算，
+代理后必须让服务端能拿到真实客户端 IP（处理 `X-Forwarded-For`），
+否则限流会退化成全局限流。
