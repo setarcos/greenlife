@@ -1,0 +1,27 @@
+[package]
+name = "Greenlife"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4"
+actix-governor = "0.10" # 登录接口限流
+
+diesel = { version = "2.2.0", features = ["postgres", "r2d2", "uuid", "chrono"] }
+
+dotenvy = "0.15" # For .env file
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+jsonwebtoken = "8"
+bcrypt = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+log = "0.4"
+env_logger = "0.10"
+futures-util = "0.3" # For middleware
+derive_more = "2"
+bitflags = { version = "2.4", features = ["serde"] }
+
+# 注意：actix-service / actix-rt 不再作为直接依赖。
+# actix-web 已经 re-export 了 actix_web::dev::{Service, Transform, forward_ready}
+# 和 #[actix_web::main]，直接依赖它们只会有版本漂移的风险。
