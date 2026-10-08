@@ -122,6 +122,37 @@ impl UpdateUserRequestDto {
     }
 }
 
+/// 用户自助修改自己的资料。
+///
+/// 刻意只有 `name` 和 `password` 两个字段：`username` 是身份标识、`role` 是权限，
+/// 都不允许自助修改。它们不出现在这里，所以客户端即使传了也到不了 SQL
+/// （serde 默认忽略未知字段），提权在类型层面就不可达。
+#[derive(Deserialize, Debug)]
+pub struct UpdateSelfRequestDto {
+    pub name: Option<String>,
+    pub password: Option<String>,
+}
+
+impl UpdateSelfRequestDto {
+    pub fn validate(&self) -> Result<(), ServiceError> {
+        if let Some(name) = &self.name {
+            validate_name(name)?;
+        }
+        // password 在这里可以完整校验：与 `UpdateUserRequestDto` 不同，
+        // 自助修改没有「管理员代改」这层语义，空串只可能是客户端写错了。
+        if let Some(password) = &self.password {
+            if password.is_empty() {
+                return Err(ServiceError::ValidationError(
+                    "password must not be empty (omit the field to leave it unchanged)"
+                        .to_string(),
+                ));
+            }
+            validate_password(password)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 pub struct LoginUserDto {
     pub username: String,
@@ -248,6 +279,40 @@ mod tests {
     #[test]
     fn rejects_short_password() {
         assert!(dto("n", "u", "short").validate().is_err());
+    }
+
+    #[test]
+    fn self_update_dto_only_validates_provided_fields() {
+        let empty = UpdateSelfRequestDto {
+            name: None,
+            password: None,
+        };
+        assert!(empty.validate().is_ok());
+
+        let ok = UpdateSelfRequestDto {
+            name: Some("张三".to_string()),
+            password: Some("correct-horse".to_string()),
+        };
+        assert!(ok.validate().is_ok());
+
+        let too_long = UpdateSelfRequestDto {
+            name: Some("x".repeat(NAME_MAX_CHARS + 1)),
+            password: None,
+        };
+        assert!(too_long.validate().is_err());
+
+        // 空串和过短的密码都必须被拒：不能让自助端点成为绕过密码策略的入口。
+        let empty_password = UpdateSelfRequestDto {
+            name: None,
+            password: Some(String::new()),
+        };
+        assert!(empty_password.validate().is_err());
+
+        let short_password = UpdateSelfRequestDto {
+            name: None,
+            password: Some("short".to_string()),
+        };
+        assert!(short_password.validate().is_err());
     }
 
     #[test]

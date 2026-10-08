@@ -82,7 +82,8 @@ async fn main() -> std::io::Result<()> {
                         Permissions::STAFF | Permissions::ADMIN,
                     ))
                     .wrap(middleware::JwtAuth)
-                    .service(auth_handlers::get_me),
+                    .service(auth_handlers::get_me)
+                    .service(auth_handlers::update_me),
             )
     })
     .bind(&server_address)?
