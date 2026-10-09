@@ -6,6 +6,8 @@ mod middleware;
 mod models;
 mod permissions;
 mod schema;
+mod taxonomy_handlers;
+mod taxonomy_models;
 mod user_handlers;
 
 use crate::config::AppConfig;
@@ -83,7 +85,33 @@ async fn main() -> std::io::Result<()> {
                     ))
                     .wrap(middleware::JwtAuth)
                     .service(auth_handlers::get_me)
-                    .service(auth_handlers::update_me),
+                    .service(auth_handlers::update_me)
+                    // 分类树 / 名录的写接口：STAFF 和 ADMIN 都能维护。
+                    // 嵌套 scope 会继承父 scope 的中间件，所以不用重复 wrap。
+                    .service(
+                        web::scope("/taxonomy")
+                            .service(taxonomy_handlers::create_taxon)
+                            .service(taxonomy_handlers::update_taxon)
+                            .service(taxonomy_handlers::delete_taxon)
+                            .service(taxonomy_handlers::create_list)
+                            .service(taxonomy_handlers::update_list)
+                            .service(taxonomy_handlers::delete_list)
+                            .service(taxonomy_handlers::create_record)
+                            .service(taxonomy_handlers::update_record)
+                            .service(taxonomy_handlers::delete_record),
+                    ),
+            )
+            // 分类树 / 名录的读接口：公开，未登录也能浏览物种。
+            .service(
+                web::scope("/taxonomy")
+                    .service(taxonomy_handlers::list_ranks)
+                    .service(taxonomy_handlers::list_taxa)
+                    .service(taxonomy_handlers::get_taxon)
+                    .service(taxonomy_handlers::get_tree)
+                    .service(taxonomy_handlers::list_lists)
+                    .service(taxonomy_handlers::get_list)
+                    .service(taxonomy_handlers::list_records)
+                    .service(taxonomy_handlers::get_record),
             )
     })
     .bind(&server_address)?

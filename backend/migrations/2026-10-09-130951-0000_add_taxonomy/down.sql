@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS taxa;
+DROP TYPE IF EXISTS taxonomy_rank;

@@ -86,6 +86,14 @@ impl From<diesel::result::Error> for ServiceError {
                 log::warn!("unique constraint violated: {}", info.message());
                 ServiceError::Conflict("Resource already exists".to_string())
             }
+            // 外键冲突同理。分类树的删除接口会先显式检查子节点 / 记录并返回更
+            // 具体的 409，这里只是并发窗口下的兜底。
+            DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, info) => {
+                log::warn!("foreign key constraint violated: {}", info.message());
+                ServiceError::Conflict(
+                    "Resource is still referenced by other records".to_string(),
+                )
+            }
             DieselError::NotFound => ServiceError::NotFound("Resource not found".to_string()),
             other => ServiceError::DieselError(other),
         }
