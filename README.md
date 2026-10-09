@@ -108,17 +108,6 @@ curl -X POST http://127.0.0.1:8080/auth/login \
 
 `frontend/` 是 Vue 3 + TypeScript + Vite 的单页应用，依赖 Pinia（登录态）和 vue-router（路由守卫）。
 
-### 页面与权限
-
-| 路由 | 谁能进 | 做什么 |
-|---|---|---|
-| `/login` | 所有人 | 登录 |
-| `/` | 已登录 | 「我的资料」：改自己的名字、改自己的密码 |
-| `/admin/users` | ADMIN | 用户表的增、删、查（`POST /admin/user/add`、`DELETE /admin/user/{id}`、`GET /admin/users`） |
-
-前端的路由守卫只是**界面层的便利**，真正的权限判定始终在服务端：
-`/admin/*` 由 `PermissionGuard::all(ADMIN)` 拦住，普通用户拿到的是 403。
-
 ### 开发
 
 ```bash
