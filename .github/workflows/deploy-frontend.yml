@@ -1,0 +1,98 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+# 部署是覆盖式的，同一时刻只需要一个在跑。
+concurrency:
+  group: deploy-frontend
+
+# 这里定义的值会作为环境变量导出给每个 step 的 shell，脚本里统一用 $NAME 引用
+# （原因见 deploy-backend.yml 顶部注释）。
+env:
+  # ~/.ssh/config 里给服务器起的别名，避免每条命令都写一长串 -o。
+  SSH_ALIAS: greenlife-deploy
+  # 与后端 workflow 共用同一套子目录约定（见 deploy-backend.yml 顶部）：
+  # DEPLOY_PATH 是部署根目录，前端 dist 的内容铺到它的 frontend/dist 下，
+  # 也就是 nginx root。这里必须是专门的目录，因为下面 rsync 带 --delete。
+  DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 上传/构建卡死时的兜底，避免占着 runner 烧 6 小时。
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # npm run build = vue-tsc --noEmit && vite build，产物在 frontend/dist。
+      - name: Build project
+        working-directory: frontend
+        run: npm run build
+
+      - name: List dist directory
+        run: ls -alh frontend/dist
+
+      # 服务器只开了 Cloudflare Tunnel，没有公网 SSH 端口：
+      # 安装 cloudflared，并让 ssh/scp/rsync 通过它建立隧道。
+      # 三个 secret 只注入这个 step，不放顶层 env —— 否则每个 step
+      # （包括第三方 action）的环境里都会多一份私钥。
+      - name: Prepare SSH over cloudflared
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          curl -fsSL -o /usr/local/bin/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
+          echo "Setting up SSH environment..."
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          # 这个 heredoc 故意不加引号：要让本机 shell 把 $SSH_ALIAS / $DEPLOY_HOST /
+          # $DEPLOY_USER 展开。展开的是变量的值，shell 不会再对它做二次解析。
+          # %h 留给 ssh：它在调用 ProxyCommand 时才展开成上面的 HostName。
+          cat > ~/.ssh/config <<EOF
+          Host $SSH_ALIAS
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            ConnectTimeout 30
+            StrictHostKeyChecking accept-new
+            ProxyCommand cloudflared access ssh --hostname %h
+          EOF
+          chmod 600 ~/.ssh/config
+
+      # 源路径结尾的斜杠表示复制 dist 的内容（而不是 dist 目录本身）。
+      # --delete 清掉上一次构建遗留的带 hash 的旧文件。目标目录是
+      # $DEPLOY_PATH/frontend/dist，与后端二进制、后端项目区隔开，
+      # 不会互相删；也别把它写成 DEPLOY_PATH 本身。
+      # 服务器上需要装 rsync。
+      - name: Upload dist
+        run: |
+          echo "Uploading dist via rsync..."
+          rsync -az --delete -e ssh frontend/dist/ \
+              "$SSH_ALIAS:$DEPLOY_PATH/frontend/dist/"

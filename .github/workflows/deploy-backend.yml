@@ -1,0 +1,170 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+# 部署是覆盖式的，同一时刻只需要一个在跑。
+concurrency:
+  group: deploy-backend
+
+# 这里定义的值会作为环境变量导出给每个 step 的 shell，脚本里统一用 $NAME 引用。
+#
+# 不写成 ${{ env.NAME }} 的原因：顶层 env 只允许引用 github/secrets/inputs/vars，
+# 引用不了 env 自身，所以派生值（REMOTE_BACKEND_DIR）在同一层拼不出来。
+# 用 shell 变量则是 shell 自己去读进程环境，没有这个限制，
+# 也顺带避免把 secret 的原文直接插进脚本文本。
+env:
+  # 服务器上托管后端的 systemd 单元名。
+  SERVICE_NAME: greenlife
+  # cargo 产物名，见 backend/Cargo.toml 的 [package] name。
+  BINARY_NAME: Greenlife
+  # ~/.ssh/config 里给服务器起的别名，避免每条命令都写一长串 -o。
+  SSH_ALIAS: greenlife-deploy
+
+  # DEPLOY_PATH 是部署根目录（如 /srv/greenlife）。子目录约定由两个 workflow
+  # 共用，所以仓库里没有任何硬编码的绝对路径：
+  #   $DEPLOY_PATH/backend/        后端项目目录：Greenlife 二进制、.env（diesel
+  #                                CLI 和二进制都靠它拿 DATABASE_URL）、migrations/
+  #   $DEPLOY_PATH/frontend/dist/  前端 dist，即 nginx root（另一个 workflow）
+  DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+  REMOTE_BACKEND_DIR: ${{ secrets.DEPLOY_PATH }}/backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 上传/构建卡死时的兜底，避免占着 runner 烧 6 小时。
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # diesel 的 postgres 后端在编译期要链接 libpq（pq-sys 找不到头文件就报错），
+      # runner 镜像里只有 libpq5，没有 libpq-dev。
+      - name: Install libpq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          # 构建在 backend/ 下进行，所以 target 是 backend/target。
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Build project
+        working-directory: backend
+        run: cargo build --release --verbose
+
+      - name: List target directory
+        run: ls -alh backend/target/release
+
+      # 服务器只开了 Cloudflare Tunnel，没有公网 SSH 端口：
+      # 安装 cloudflared，并让 ssh/scp/rsync 通过它建立隧道。
+      # 三个 secret 只注入这个 step，不放顶层 env —— 否则每个 step
+      # （包括第三方 action）的环境里都会多一份私钥。
+      - name: Prepare SSH over cloudflared
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          curl -fsSL -o /usr/local/bin/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
+          echo "Setting up SSH environment..."
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          # 这个 heredoc 故意不加引号：要让本机 shell 把 $SSH_ALIAS / $DEPLOY_HOST /
+          # $DEPLOY_USER 展开。展开的是变量的值，shell 不会再对它做二次解析。
+          # %h 留给 ssh：它在调用 ProxyCommand 时才展开成上面的 HostName。
+          cat > ~/.ssh/config <<EOF
+          Host $SSH_ALIAS
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            ConnectTimeout 30
+            StrictHostKeyChecking accept-new
+            ProxyCommand cloudflared access ssh --hostname %h
+          EOF
+          chmod 600 ~/.ssh/config
+
+      # 迁移放在停服务之前：当前几个迁移都是向后兼容的（IF NOT EXISTS、
+      # ADD COLUMN ... DEFAULT），旧二进制在新 schema 上能继续跑。
+      # 这样迁移一旦失败，workflow 直接退出，二进制没被覆盖、服务也还在跑。
+      # 若以后出现不兼容的迁移（RENAME/DROP），这个顺序就不成立了，要拆成两步发布。
+
+      # --delete 让服务器上的迁移文件与仓库完全一致；否则服务器上残留的
+      # 迁移文件会被 diesel 当成待应用项执行。前端 workflow 的 --delete
+      # 只作用于 $DEPLOY_PATH/frontend/dist，两边不会互相删。
+      - name: Sync migrations
+        run: |
+          # 路径由 DEPLOY_PATH 派生，写错时在这里给一句人话，
+          # 而不是在 rsync / diesel 那里报一堆难懂的错。
+          # 注意这个 || 会把 ssh 自身的失败（连不上 / 认证失败）也归到这里，
+          # 所以别把它当诊断，上面 ssh 的输出才是权威的。
+          ssh "$SSH_ALIAS" "test -f '$REMOTE_BACKEND_DIR/.env'" || {
+            echo "错误：拿不到 $REMOTE_BACKEND_DIR/.env。可能是 DEPLOY_PATH 不对"
+            echo "（应为部署根目录，其 backend/ 子目录需含 .env 和 migrations/），也可能是上面的 ssh 本身就失败了。"
+            exit 1
+          }
+
+          rsync -az --delete -e ssh backend/migrations/ \
+              "$SSH_ALIAS:$REMOTE_BACKEND_DIR/migrations/"
+
+      # 用 bash -l 起登录 shell：ssh 执行单条命令时不会加载 profile，
+      # 而 cargo install 装的 diesel 在 ~/.cargo/bin，只有 profile 里的
+      # PATH 才包含它。
+      # --migration-dir 显式指定，避免依赖服务器上有没有 diesel.toml。
+      # 服务器上需要 diesel CLI：
+      #   cargo install diesel_cli --no-default-features --features postgres
+      #
+      # heredoc 不加引号，让本机 shell 先把 $REMOTE_BACKEND_DIR 展开成真实路径。
+      - name: Run database migrations
+        run: |
+          echo "Running diesel migration run in $REMOTE_BACKEND_DIR"
+          ssh "$SSH_ALIAS" bash -l <<EOF
+          set -euo pipefail
+          cd "$REMOTE_BACKEND_DIR"
+          diesel migration run --migration-dir migrations
+          EOF
+
+      - name: Stop remote service
+        run: |
+          echo "Attempting to stop service: $SERVICE_NAME"
+          ssh "$SSH_ALIAS" "sudo systemctl stop $SERVICE_NAME"
+
+      # 二进制放在 backend 目录里，和 .env 同级：systemd 单元的
+      # WorkingDirectory 设成这个目录，dotenvy 就能读到 .env。
+      # 这里不需要 mkdir —— 上面 Sync migrations 已经确认该目录存在（含 .env）。
+      - name: Upload binary
+        run: |
+          echo "Uploading binary via manual SCP..."
+          scp "backend/target/release/$BINARY_NAME" \
+              "$SSH_ALIAS:$REMOTE_BACKEND_DIR/$BINARY_NAME"
+
+      - name: Start remote service
+        run: |
+          echo "Attempting to start service: $SERVICE_NAME via manual SSH"
+          ssh "$SSH_ALIAS" "sudo systemctl start $SERVICE_NAME"
+
+      # is-active 在服务起不来时返回非 0，让 workflow 直接失败，
+      # 而不是"部署成功"却跑着旧进程。
+      - name: Check remote service
+        run: ssh "$SSH_ALIAS" "sudo systemctl is-active $SERVICE_NAME"
