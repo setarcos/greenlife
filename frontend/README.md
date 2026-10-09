@@ -30,13 +30,18 @@ src/
 ├── api/            axios 封装，按后端 scope 分文件
 │   ├── http.ts       baseURL='/api' + token 注入 + 401 自动登出（唯一一处定义前缀和鉴权头）
 │   ├── auth.ts       /auth/login、/staff/me（读自己 / 改自己）
-│   └── users.ts      /admin/user/*、/admin/users（都要 ADMIN）
-├── stores/auth.ts  Pinia：token + 当前用户；isAdmin 由 role 推导
+│   ├── users.ts      /admin/user/*、/admin/users（都要 ADMIN）
+│   ├── taxonomy.ts   /taxonomy/*（公开读：阶元 / 分类树 / 名录 / 记录）
+│   └── staffTaxonomy.ts  /staff/taxonomy/*（STAFF 或 ADMIN 的增删改）
+├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / canManageTaxonomy 由 role 推导
 ├── router/         路由表 + 守卫（requiresAuth / requiresAdmin）
-├── layouts/        AppLayout：顶栏 + 导航 + 退出登录
-├── views/          LoginView、ProfileView（我的资料）、UsersView（用户管理）
-├── types.ts        与后端 DTO 对应的类型
-└── validation.ts   与 backend/src/models.rs 的长度常量对齐的前端校验
+├── layouts/        AppLayout：顶栏 + 导航 + 登录态
+├── components/     TaxonPicker（逐级下拉框）、TaxonTreeNode、SpeciesRecordTable、ConfirmDialog
+├── views/          LoginView、ProfileView、UsersView、
+│                   SpeciesListsView（名录）、TaxonomyTreeView（分类树）、SpeciesSearchView（检索）
+├── taxonomy.ts     分类树 / 名录的类型与阶元辅助（阶元标签、深度、taxonLabel）
+├── types.ts        与后端用户 DTO 对应的类型
+└── validation.ts   与 backend/src/*_models.rs 的长度常量对齐的前端校验
 ```
 
 ## 几个约定
@@ -52,3 +57,30 @@ src/
 - **图片、文案里的错误信息来自后端**：`{ "error": "..." }` 原样展示（见 `api/http.ts::errorMessage`）。
 - 长度限制（名字 10 字符、密码 8 字符 / 72 字节）在 `validation.ts` 里，
   和 `backend/src/models.rs` 的常量手工对齐 —— **改后端时两边都要改**。
+  分类树 / 名录的同类常量（学名 200、名录名 100、编号 50）也在那里，对齐
+  `backend/src/taxonomy_models.rs`。
+
+## 物种分类前台
+
+物种浏览是**公开**的（后端 `/taxonomy` 读接口就不需要登录），只有维护动作要
+STAFF 或 ADMIN：
+
+| 页面     | 路由      | 谁能进 | 做什么                                                   |
+| -------- | --------- | ------ | -------------------------------------------------------- |
+| 物种名录 | `/`       | 所有人 | 选名录 → 分页 / 关键字浏览记录；STAFF 可增删改名录与记录 |
+| 分类树   | `/tree`   | 所有人 | 递归展开树、看节点路径与子节点；STAFF 可增删改节点       |
+| 物种检索 | `/search` | 所有人 | 按名录 + 类群（含下级）+ 关键字查记录                    |
+
+两个实现上的重点：
+
+- **逐级下拉框**（`components/TaxonPicker.vue`）不是「上一级的直接子节点」，
+  而是「最近一个已选祖先的直接子节点」：`GET /taxonomy/taxa?rank=<本级>&parent_id=<祖先>`。
+  因为后端允许跳级（属直接挂在纲下），某一级下拉框可能是空的，但更低的几级
+  仍能列出跳过中间阶元的节点。`modelValue` 取选中的**最深**节点。
+- **三态字段**：`parent_id` / `chinese_name` / 记录的 `note` 等，请求体里
+  字段缺失 = 不改，`null` = 置空，有值 = 改。见 `api/staffTaxonomy.ts` 的注释。
+  例外的陷阱是**名录的 `description`**：后端用的是普通 `Option`，`null` 也只
+  表示「不改」，所以「清空描述」只能写空字符串。
+
+界面权限（有没有「新增 / 编辑 / 删除」按钮）由 `stores/auth.ts` 的 `canManageTaxonomy`
+决定，真正的权限判定始终在服务端（`/staff/taxonomy/*` 由 `PermissionGuard` 拦住）。

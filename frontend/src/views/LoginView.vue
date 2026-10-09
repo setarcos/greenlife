@@ -30,7 +30,8 @@ async function submit(): Promise<void> {
   try {
     await auth.login(username.value, password.value)
     const redirect = route.query.redirect
-    await router.replace(typeof redirect === 'string' ? redirect : { name: 'profile' })
+    // 登录后默认回到公开首页（物种名录）。
+    await router.replace(typeof redirect === 'string' ? redirect : { name: 'species-lists' })
   } catch (e) {
     // 401 的响应也会经过 http 拦截器（会把本地登录态清掉），
     // 但错误信息仍然要展示给用户。

@@ -92,6 +92,18 @@ a {
   color: #9ca3af;
 }
 
+.login-link {
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  text-decoration: none;
+}
+
+.login-link:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
 .app-main {
   max-width: 960px;
   margin: 0 auto;
@@ -274,6 +286,29 @@ button.link:hover:not(:disabled) {
 
 .table td.actions-cell {
   text-align: right;
+  white-space: nowrap;
+}
+
+.table td.actions-cell button + button {
+  margin-left: 6px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+/* 完整显示、不换行（学名 / 中文名） */
+.table td.nowrap {
+  white-space: nowrap;
+}
+
+/* 不换行，超出用省略号；元素上的 title 属性负责 hover 时显示全文 */
+.clip {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tag {
@@ -314,8 +349,232 @@ button.link:hover:not(:disabled) {
   margin-bottom: 12px;
 }
 
+.modal-wide {
+  max-width: 560px;
+}
+
 .modal .actions {
   margin-top: 16px;
+}
+
+/* --- 物种名录 / 检索 --- */
+
+.list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.list-item:hover {
+  border-color: var(--accent);
+  filter: none;
+}
+
+.list-item.active {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.list-item .muted {
+  font-size: 12px;
+}
+
+.search-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.search-bar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 16px;
+  align-items: start;
+}
+
+.search-form .actions {
+  grid-column: 1 / -1;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* --- 分类树 --- */
+
+.tree-split {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(280px, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.tree,
+.tree-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree {
+  max-height: 70vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.tree-children {
+  margin-left: 16px;
+  border-left: 1px dashed var(--border);
+  padding-left: 8px;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+
+.tree-row.selected {
+  background: var(--accent-weak);
+}
+
+.tree-toggle {
+  width: 22px;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tree-toggle:hover:not(:disabled) {
+  color: var(--text);
+  filter: none;
+}
+
+.tree-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-label:hover {
+  color: var(--accent);
+  filter: none;
+}
+
+.tree-detail {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.crumb {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.crumb:hover {
+  filter: none;
+  text-decoration: underline;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  filter: none;
+}
+
+/* --- 逐级下拉框（TaxonPicker）--- */
+
+.picker {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.picker .field:last-of-type {
+  margin-bottom: 8px;
+}
+
+.picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 /* --- 登录页 --- */

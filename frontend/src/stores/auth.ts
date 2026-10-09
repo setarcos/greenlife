@@ -2,7 +2,11 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import * as authApi from '../api/auth'
 import { getToken, setToken } from '../api/http'
-import { isAdmin as roleIsAdmin, type User } from '../types'
+import {
+  canManageTaxonomy as roleCanManageTaxonomy,
+  isAdmin as roleIsAdmin,
+  type User,
+} from '../types'
 
 /// 登录态。token 持久化在 localStorage，user 每次刷新后重新拉取
 /// ——权限以服务端当前值为准，不从本地缓存里信任。
@@ -12,6 +16,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => token.value !== null)
   const isAdmin = computed(() => roleIsAdmin(user.value?.role))
+  /// 能不能维护分类树 / 名录（STAFF 或 ADMIN，与后端 /staff 作用域一致）。
+  const canManageTaxonomy = computed(() => roleCanManageTaxonomy(user.value?.role))
 
   async function login(username: string, password: string): Promise<void> {
     const result = await authApi.login(username, password)
@@ -37,5 +43,15 @@ export const useAuthStore = defineStore('auth', () => {
     return updated
   }
 
-  return { token, user, isAuthenticated, isAdmin, login, logout, loadMe, updateProfile }
+  return {
+    token,
+    user,
+    isAuthenticated,
+    isAdmin,
+    canManageTaxonomy,
+    login,
+    logout,
+    loadMe,
+    updateProfile,
+  }
 })

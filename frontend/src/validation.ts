@@ -7,6 +7,11 @@ export const USERNAME_MAX_CHARS = 50
 export const PASSWORD_MIN_CHARS = 8
 export const PASSWORD_MAX_BYTES = 72
 
+/// 与 backend/src/taxonomy_models.rs 顶部的常量对齐。
+export const TAXON_NAME_MAX_CHARS = 200 // 分类节点的 scientific_name / chinese_name
+export const LIST_NAME_MAX_CHARS = 100 // 名录名
+export const RECORD_NO_MAX_CHARS = 50 // 记录的编号
+
 /// Rust 的 `chars().count()` 数的是字符，JS 的 `.length` 数的是 UTF-16 码元
 /// —— 一个 emoji 在后端算 1 个字符、在前端会算成 2 个。
 export function charCount(value: string): number {
@@ -45,6 +50,17 @@ export function validatePassword(password: string): string {
   }
   if (byteCount(password) > PASSWORD_MAX_BYTES) {
     return `密码不能超过 ${PASSWORD_MAX_BYTES} 字节（一个中文字算 3 字节）`
+  }
+  return ''
+}
+
+/// 非空且不超过 maxChars —— 后端 `validate_name` 的镜像，用于分类树 / 名录的字段。
+export function validateField(field: string, value: string, maxChars: number): string {
+  if (value.trim() === '') {
+    return `${field}不能为空`
+  }
+  if (charCount(value) > maxChars) {
+    return `${field}最多 ${maxChars} 个字符`
   }
   return ''
 }

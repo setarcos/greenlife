@@ -24,6 +24,11 @@ export function isAdmin(role: Role | undefined): boolean {
   return role !== undefined && role.includes('ADMIN')
 }
 
+/// 分类树 / 名录的写接口要求 STAFF 或 ADMIN（见 backend/src/main.rs 的 /staff 作用域）。
+export function canManageTaxonomy(role: Role | undefined): boolean {
+  return isAdmin(role) || (role !== undefined && role.includes('STAFF'))
+}
+
 /// `GET /staff/me`、`GET /admin/users` 等返回的用户对象。
 /// 后端刻意用独立的响应 DTO，不含 `password_hash` 和 `token_version`。
 export interface User {

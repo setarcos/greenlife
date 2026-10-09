@@ -4,6 +4,9 @@ import { useAuthStore } from '../stores/auth'
 import AppLayout from '../layouts/AppLayout.vue'
 import LoginView from '../views/LoginView.vue'
 import ProfileView from '../views/ProfileView.vue'
+import SpeciesListsView from '../views/SpeciesListsView.vue'
+import SpeciesSearchView from '../views/SpeciesSearchView.vue'
+import TaxonomyTreeView from '../views/TaxonomyTreeView.vue'
 import UsersView from '../views/UsersView.vue'
 
 export const router = createRouter({
@@ -13,16 +16,23 @@ export const router = createRouter({
     {
       path: '/',
       component: AppLayout,
-      // meta 会被子路由继承（vue-router 会把所有 matched 记录的 meta 合并进 to.meta），
-      // 所以 requiresAuth 写在这一层就够了。
-      meta: { requiresAuth: true },
+      // 物种浏览（名录 / 分类树 / 检索）是公开的，和后端 /taxonomy 读接口一致；
+      // 只有「我的资料」和用户管理要登录。
       children: [
-        { path: '', name: 'profile', component: ProfileView },
+        { path: '', name: 'species-lists', component: SpeciesListsView },
+        { path: 'tree', name: 'taxonomy-tree', component: TaxonomyTreeView },
+        { path: 'search', name: 'species-search', component: SpeciesSearchView },
+        {
+          path: 'profile',
+          name: 'profile',
+          component: ProfileView,
+          meta: { requiresAuth: true },
+        },
         {
           path: 'admin/users',
           name: 'admin-users',
           component: UsersView,
-          meta: { requiresAdmin: true },
+          meta: { requiresAuth: true, requiresAdmin: true },
         },
       ],
     },
@@ -33,27 +43,37 @@ export const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
-  if (!auth.isAuthenticated) {
-    return to.meta.requiresAuth ? { name: 'login', query: { redirect: to.fullPath } } : true
+  if (to.name === 'login') {
+    if (!auth.isAuthenticated) {
+      return true
+    }
+    // 已经登录还点登录页：先确认这把 token 还有效，再回首页。
+    if (auth.user === null) {
+      try {
+        await auth.loadMe()
+      } catch {
+        auth.logout()
+        return true
+      }
+    }
+    return { name: 'species-lists' }
   }
 
-  // 已登录但还没有用户资料（刚刷新页面）。必须先拿到它，
-  // 否则 requiresAdmin 无从判断；顺带也验证了本地 token 是否还有效。
-  if (auth.user === null) {
+  // 已登录但还没有用户资料（刚刷新页面）。公开页面也要拉一次，否则顶栏
+  // 不会显示当前用户；失败（401/403）就当作游客继续浏览。
+  if (auth.isAuthenticated && auth.user === null) {
     try {
       await auth.loadMe()
     } catch (e) {
-      // 401（token 失效）已经由拦截器 logout；403 说明账号存在但角色是 NONE，
-      // 连 /staff/me 都读不到，此时无法确定自己是谁，只能退回登录页。
       auth.logout()
-      return isForbidden(e)
-        ? { name: 'login', query: { notice: 'no-access' } }
-        : { name: 'login', query: { redirect: to.fullPath } }
+      if (isForbidden(e) && to.meta.requiresAuth) {
+        return { name: 'login', query: { notice: 'no-access' } }
+      }
     }
   }
 
-  if (to.name === 'login') {
-    return { name: 'profile' }
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
   }
   // 非管理员直接访问 /admin/users 时退回「我的资料」。
   // 注意这只影响前端路由，/admin/* 的接口在服务端另有 ADMIN 校验。

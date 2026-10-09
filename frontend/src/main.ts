@@ -9,13 +9,15 @@ import './styles.css'
 const app = createApp(App)
 app.use(createPinia())
 
-// 任何请求返回 401（token 过期、改密码后被作废、账号被删）都立刻清掉本地登录态
-// 并回到登录页。放在这里而不是 http.ts 里，是为了避免 http → router/store 的循环导入。
+// 任何请求返回 401（token 过期、改密码后被作废、账号被删）都立刻清掉本地登录态。
+// 放在这里而不是 http.ts 里，是为了避免 http → router/store 的循环导入。
 const auth = useAuthStore()
 setUnauthorizedHandler(() => {
   auth.logout()
   const current = router.currentRoute.value
-  if (current.name !== 'login') {
+  // 只有受保护的页面才踢回登录页。物种名录 / 分类树 / 检索是公开的，
+  // 本地那把过期 token 不应该把游客打断。
+  if (current.meta.requiresAuth && current.name !== 'login') {
     void router.replace({ name: 'login', query: { redirect: current.fullPath } })
   }
 })
