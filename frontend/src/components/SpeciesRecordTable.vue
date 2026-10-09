@@ -39,7 +39,11 @@ defineSlots<{
           <td class="nowrap">{{ record.scientific_name }}</td>
           <td class="nowrap">{{ record.chinese_name ?? '—' }}</td>
           <td v-if="listName" class="muted">{{ listName(record.list_id) }}</td>
-          <td class="muted">{{ record.distribution ?? '—' }}</td>
+          <td class="muted">
+            <span class="clip" :title="record.distribution ?? undefined">
+              {{ record.distribution ?? '—' }}
+            </span>
+          </td>
           <td class="muted">
             <span class="clip" :title="record.note ?? undefined">{{ record.note ?? '—' }}</span>
           </td>
