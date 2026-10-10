@@ -7,6 +7,29 @@ pub mod sql_types {
 }
 
 diesel::table! {
+    bird_records (id) {
+        id -> Uuid,
+        taxon_id -> Uuid,
+        #[max_length = 200]
+        scientific_name -> Varchar,
+        #[max_length = 200]
+        chinese_name -> Nullable<Varchar>,
+        #[max_length = 200]
+        observer -> Nullable<Varchar>,
+        #[max_length = 100]
+        observed_at -> Nullable<Varchar>,
+        #[max_length = 200]
+        location -> Nullable<Varchar>,
+        note -> Nullable<Text>,
+        source -> Nullable<Text>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        observed_from -> Nullable<Date>,
+        observed_to -> Nullable<Date>,
+    }
+}
+
+diesel::table! {
     maintenance_logs (id) {
         id -> Uuid,
         list_id -> Nullable<Uuid>,
@@ -83,11 +106,13 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(bird_records -> taxa (taxon_id));
 diesel::joinable!(maintenance_logs -> species_lists (list_id));
 diesel::joinable!(species_records -> species_lists (list_id));
 diesel::joinable!(species_records -> taxa (taxon_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    bird_records,
     maintenance_logs,
     species_lists,
     species_records,

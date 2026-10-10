@@ -73,6 +73,19 @@ export async function getTree(query: TreeQuery = {}): Promise<TaxonNode[]> {
   return data
 }
 
+/// 按「阶元 + 学名」精确定位一个分类节点，找不到返回 null。
+///
+/// 用于「鸟种清单」这类固定入口：先拿到鸟纲（Aves）节点 id，再用
+/// `descendants` 查整棵子树的记录，避免把节点 id 写死在前端。
+/// `q` 是模糊匹配，所以结果里还要按学名精确过滤一遍。
+export async function findTaxonId(
+  rank: TaxonomyRank,
+  scientificName: string,
+): Promise<string | null> {
+  const taxa = await listTaxa({ rank, q: scientificName, limit: 20 })
+  return taxa.find((taxon) => taxon.scientific_name === scientificName)?.id ?? null
+}
+
 /// GET /taxonomy/lists：所有名录。
 export async function listSpeciesLists(): Promise<SpeciesList[]> {
   const { data } = await http.get<SpeciesList[]>('/taxonomy/lists')

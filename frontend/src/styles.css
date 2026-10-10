@@ -518,6 +518,12 @@ button.name-link:hover:not(:disabled) {
   min-width: 0;
 }
 
+/* 时间范围的两个日期框：不要跟着关键字输入框一起拉伸 */
+.search-bar input.date {
+  flex: none;
+  width: 150px;
+}
+
 .search-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -595,6 +601,34 @@ button.name-link:hover:not(:disabled) {
 
 .log-appendix > :last-child {
   margin: 4px 0 0;
+}
+
+/* --- 鸟类调查 --- */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tab {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+}
+
+.tab:hover:not(:disabled) {
+  border-color: var(--accent);
+  filter: none;
+}
+
+.tab.active {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+  color: var(--accent);
 }
 
 /* --- 分类树 --- */

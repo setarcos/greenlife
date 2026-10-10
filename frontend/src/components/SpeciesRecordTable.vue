@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import type { SpeciesRecord } from '../taxonomy'
 import NoteText from './NoteText.vue'
-import SpeciesCard from './SpeciesCard.vue'
+import SpeciesCard, { type SpeciesCardTarget } from './SpeciesCard.vue'
 
 /// 名录记录的只读表格，名录页和物种检索页共用。
 /// 操作列的按钮由调用方通过 `actions` 插槽提供（检索页不传就没有这一列）。
@@ -16,6 +16,8 @@ defineProps<{
 
 defineSlots<{
   actions?: (props: { record: SpeciesRecord }) => unknown
+  /// 透传给物种卡片标题栏的动作按钮（鸟类调查用它加「添加新重要记录」）。
+  'card-actions'?: (props: { record: SpeciesCardTarget; close: () => void }) => unknown
   empty?: () => unknown
 }>()
 
@@ -90,5 +92,10 @@ function openCard(record: SpeciesRecord): void {
     </table>
   </div>
 
-  <SpeciesCard ref="card" :list-name="listName" />
+  <SpeciesCard ref="card" :list-name="listName">
+    <!-- 卡片标题栏的动作按钮由调用方决定，这里只做透传。 -->
+    <template #actions="slotProps">
+      <slot name="card-actions" v-bind="slotProps" />
+    </template>
+  </SpeciesCard>
 </template>

@@ -1,4 +1,6 @@
 mod auth_handlers;
+mod bird_handlers;
+mod bird_models;
 mod config;
 mod db;
 mod errors;
@@ -108,6 +110,13 @@ async fn main() -> std::io::Result<()> {
                             .service(maintenance_handlers::create_maintenance_log)
                             .service(maintenance_handlers::update_maintenance_log)
                             .service(maintenance_handlers::delete_maintenance_log),
+                    )
+                    // 鸟类调查「重要记录」的写接口。
+                    .service(
+                        web::scope("/bird-records")
+                            .service(bird_handlers::create_bird_record)
+                            .service(bird_handlers::update_bird_record)
+                            .service(bird_handlers::delete_bird_record),
                     ),
             )
             // 分类树 / 名录的读接口：公开，未登录也能浏览物种。
@@ -127,6 +136,12 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/maintenance-logs")
                     .service(maintenance_handlers::list_maintenance_logs)
                     .service(maintenance_handlers::get_maintenance_log),
+            )
+            // 鸟类调查「重要记录」的读接口：同样公开。
+            .service(
+                web::scope("/bird-records")
+                    .service(bird_handlers::list_bird_records)
+                    .service(bird_handlers::get_bird_record),
             )
     })
     .bind(&server_address)?

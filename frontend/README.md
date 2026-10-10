@@ -33,16 +33,18 @@ src/
 │   ├── users.ts      /admin/user/*、/admin/users（都要 ADMIN）
 │   ├── taxonomy.ts   /taxonomy/*（公开读：阶元 / 分类树 / 名录 / 记录）
 │   ├── staffTaxonomy.ts  /staff/taxonomy/*（STAFF 或 ADMIN 的增删改）
-│   └── maintenanceLogs.ts  /maintenance-logs/*（公开读）与 /staff/maintenance-logs/*（写）
+│   ├── maintenanceLogs.ts  /maintenance-logs/*（公开读）与 /staff/maintenance-logs/*（写）
+│   └── birdRecords.ts  /bird-records/*（公开读）与 /staff/bird-records/*（写）
 ├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / canManageTaxonomy 由 role 推导
 ├── router/         路由表 + 守卫（requiresAuth / requiresAdmin）
 ├── layouts/        AppLayout：顶栏 + 导航 + 登录态
 ├── components/     TaxonPicker（逐级下拉框）、TaxonTreeNode、SpeciesRecordTable、ConfirmDialog
 ├── views/          LoginView、ProfileView、UsersView、
 │                   SpeciesListsView（名录）、TaxonomyTreeView（分类树）、SpeciesSearchView（检索）、
-│                   MaintenanceLogsView（维护日志）
+│                   BirdSurveyView（鸟类调查）、MaintenanceLogsView（维护日志）
 ├── taxonomy.ts     分类树 / 名录的类型与阶元辅助（阶元标签、深度、taxonLabel）
 ├── maintenanceLogs.ts  维护日志的类型
+├── birds.ts        鸟类调查的类型
 ├── types.ts        与后端用户 DTO 对应的类型
 └── validation.ts   与 backend/src/*_models.rs 的长度常量对齐的前端校验
 ```
@@ -71,6 +73,7 @@ src/
 | `/`            | 所有人 | 「物种名录」：选名录、浏览 / 搜索记录（读接口公开） |
 | `/tree`        | 所有人 | 「分类树」：展开分类树、查看节点路径与子节点        |
 | `/search`      | 所有人 | 「物种检索」：按名录 / 类群 / 关键字查记录          |
+| `/birds`       | 所有人 | 「鸟类调查」：鸟种清单 / 重要记录 / 鸟调记录        |
 | `/logs`        | 所有人 | 「维护日志」：按名录浏览 / 搜索修订记录             |
 | `/profile`     | 已登录 | 「我的资料」：改自己的名字、改自己的密码            |
 | `/admin/users` | ADMIN  | 用户表的增、删、查                                  |
@@ -102,3 +105,24 @@ STAFF 或 ADMIN；路由见上面的「页面与权限」。
 
 维护日志（`MaintenanceLogsView`）是同一套模式：读接口公开、写接口在 `/staff` 下，
 「修订说明 / 物种附录」用 `white-space: pre-wrap` 原样保留换行。
+
+## 鸟类调查
+
+「鸟类调查」（`BirdSurveyView`）是三个标签页，三种数据来源：
+
+- **鸟种清单**：鸟纲下的全部名录记录，走的是现成的 `/taxonomy/records`。
+  鸟纲节点 id 不写死 —— 导入脚本按 UUIDv5 派生 id，换一份数据就不一样了，
+  所以先用 `findTaxonId('class', 'Aves')` 在分类树里找到节点，再用
+  `descendants` 取整棵子树。
+- **重要记录**：`bird_records` 表（迁移 `2026-10-11-000000`），字段是
+  记录人 / 时间 / 地点 / 备注 + `taxon_id`（关联分类树）+ 来源。
+  `observed_at` 是**原文**而不是日期：「2023年5月底」这类写法归一成一个日期
+  会丢精度。时间范围筛选靠迁移 `2026-10-11-010000` 加的两个**生成列**
+  （`observed_from` / `observed_to`）：原文归一成一段日期区间，查询时求交集，
+  「2023年5月底」落在 5 月下旬、「2007年」整年都算。归一逻辑只在数据库函数
+  `bird_observed_bounds` 里一份，导入 / 新建 / 修改共用。
+  读接口公开，写接口在 `/staff/bird-records`，所以页面上的
+  「新增 / 编辑 / 删除」由 `canManageTaxonomy` 控制。新增 / 编辑的物种**只能选鸟纲**：
+  不再逐级选门 / 纲 / 目 / 科，而是一个带筛选词的鸟种下拉框（候选和「鸟种清单」
+  同一个来源）；学名与中文名随鸟种自动带出，不手填。
+- **鸟调记录**：还没有对应的表和接口，先是一个空标签。

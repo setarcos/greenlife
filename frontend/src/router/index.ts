@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { isForbidden } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import AppLayout from '../layouts/AppLayout.vue'
+import BirdSurveyView from '../views/BirdSurveyView.vue'
 import LoginView from '../views/LoginView.vue'
 import MaintenanceLogsView from '../views/MaintenanceLogsView.vue'
 import ProfileView from '../views/ProfileView.vue'
@@ -17,12 +18,14 @@ export const router = createRouter({
     {
       path: '/',
       component: AppLayout,
-      // 物种浏览（名录 / 分类树 / 检索 / 维护日志）是公开的，和后端 /taxonomy、
-      // /maintenance-logs 读接口一致；只有「我的资料」和用户管理要登录。
+      // 物种浏览（名录 / 分类树 / 检索 / 鸟类调查 / 维护日志）是公开的，和后端
+      // /taxonomy、/bird-records、/maintenance-logs 读接口一致；只有「我的资料」
+      // 和用户管理要登录。
       children: [
         { path: '', name: 'species-lists', component: SpeciesListsView },
         { path: 'tree', name: 'taxonomy-tree', component: TaxonomyTreeView },
         { path: 'search', name: 'species-search', component: SpeciesSearchView },
+        { path: 'birds', name: 'bird-survey', component: BirdSurveyView },
         { path: 'logs', name: 'maintenance-logs', component: MaintenanceLogsView },
         {
           path: 'profile',

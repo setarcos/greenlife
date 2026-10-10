@@ -1,8 +1,28 @@
+<script lang="ts">
+/// 卡片至少要知道的三样：物种是谁 + 挂在哪个分类节点上。
+/// 名录记录的其余字段（所属名录 / 分布 / 编号…）是可选的——鸟类的「重要记录」
+/// 没有它们，打开卡片时用 `open()` 的第二个参数直接给出自己的「记录信息」行。
+///
+/// 放在普通 `<script>` 块里是为了能导出：SpeciesRecordTable 要把卡片的动作按钮
+/// 透传给上层，插槽 prop 用的就是这个类型。
+export interface SpeciesCardTarget {
+  taxon_id: string
+  scientific_name: string
+  chinese_name: string | null
+  list_id?: string
+  distribution?: string | null
+  note?: string | null
+  source?: string | null
+  record_no?: string | null
+  updated_at?: string
+}
+</script>
+
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { errorMessage } from '../api/http'
 import { getTaxon } from '../api/taxonomy'
-import { RANKS, rankLabel, type SpeciesRecord, type Taxon } from '../taxonomy'
+import { RANKS, rankLabel, type Taxon } from '../taxonomy'
 import { formatTimestamp } from '../types'
 import NoteText from './NoteText.vue'
 
@@ -13,8 +33,18 @@ defineProps<{
   listName?: (listId: string) => string
 }>()
 
+/// 「记录信息」里的一行。
+interface InfoRow {
+  label: string
+  value: string | null
+  /// 等宽显示（编号这类）。
+  mono?: boolean
+}
+
 const dialog = ref<HTMLDialogElement | null>(null)
-const record = ref<SpeciesRecord | null>(null)
+const record = ref<SpeciesCardTarget | null>(null)
+/// 调用方给的行；为 null 时按名录记录的字段渲染默认行。
+const rows = ref<InfoRow[] | null>(null)
 const chain = ref<Taxon[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -33,9 +63,11 @@ const rankRows = computed(() =>
   })),
 )
 
-async function open(target: SpeciesRecord): Promise<void> {
+/// 打开卡片。`info` 传了就代替默认的「记录信息」行。
+async function open(target: SpeciesCardTarget, info?: InfoRow[]): Promise<void> {
   const seq = (requestSeq += 1)
   record.value = target
+  rows.value = info ?? null
   chain.value = []
   error.value = ''
   loading.value = false
@@ -82,7 +114,12 @@ defineExpose({ open })
             <span v-if="record.chinese_name === null" class="muted">（暂无中文名）</span>
           </p>
         </div>
-        <button class="secondary" type="button" @click="close">关闭</button>
+        <div class="head-actions">
+          <!-- 调用方从这里加针对这条记录的动作按钮（例如「添加新重要记录」）。
+               一起把 close 交出去，按钮自己决定什么时候收起卡片。 -->
+          <slot name="actions" :record="record" :close="close" />
+          <button class="secondary" type="button" @click="close">关闭</button>
+        </div>
       </div>
 
       <h3>分类阶元</h3>
@@ -101,30 +138,40 @@ defineExpose({ open })
 
       <h3>记录信息</h3>
       <div class="info-list">
-        <div v-if="listName" class="info-row">
-          <span class="info-label">名录</span>
-          <span>{{ listName(record.list_id) }}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">分布</span>
-          <span>{{ record.distribution ?? '—' }}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">备注</span>
-          <NoteText :note="record.note" />
-        </div>
-        <div class="info-row">
-          <span class="info-label">来源</span>
-          <span>{{ record.source ?? '—' }}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">编号</span>
-          <span class="mono">{{ record.record_no ?? '—' }}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">更新</span>
-          <span class="muted">{{ formatTimestamp(record.updated_at) }}</span>
-        </div>
+        <template v-if="rows">
+          <div v-for="row in rows" :key="row.label" class="info-row">
+            <span class="info-label">{{ row.label }}</span>
+            <span :class="row.mono ? 'mono' : null">{{ row.value ?? '—' }}</span>
+          </div>
+        </template>
+        <template v-else>
+          <div v-if="listName && record.list_id" class="info-row">
+            <span class="info-label">名录</span>
+            <span>{{ listName(record.list_id) }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">分布</span>
+            <span>{{ record.distribution ?? '—' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">备注</span>
+            <NoteText :note="record.note ?? null" />
+          </div>
+          <div class="info-row">
+            <span class="info-label">来源</span>
+            <span>{{ record.source ?? '—' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">编号</span>
+            <span class="mono">{{ record.record_no ?? '—' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">更新</span>
+            <span class="muted">{{
+              record.updated_at ? formatTimestamp(record.updated_at) : '—'
+            }}</span>
+          </div>
+        </template>
       </div>
     </template>
   </dialog>
