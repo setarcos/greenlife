@@ -404,6 +404,7 @@ mod tests {
         AppConfig {
             jwt_secret: secret.to_string(),
             jwt_expiration_hours: 24,
+            upload_path: std::path::PathBuf::from("/tmp/greenlife-test-uploads"),
         }
     }
 

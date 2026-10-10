@@ -36,10 +36,11 @@ cp .env.example .env
 |---|---|
 | `DATABASE_URL` | 数据库连接串。**线上用 TCP + 密码**：`postgresql://user:password@host:5432/greenlife` |
 | `JWT_SECRET` | 签名密钥，建议至少 32 字节。生成：`head -c 48 /dev/urandom \| base64` |
+| `UPLOAD_PATH` | 物种照片的存储根目录，例：`/srv/greenlife/uploads`。运行服务的用户必须对它可写；照片按拍摄年月写到 `$UPLOAD_PATH/yyyy-mm/<uuid>.<ext>` |
 
 可选：`JWT_EXPIRATION_HOURS`（默认 24）、`SERVER_ADDRESS`（默认 `127.0.0.1:8080`）。
 
-`DATABASE_URL` 或 `JWT_SECRET` 缺失时**进程会直接启动失败**，这是有意的 fail-fast。
+`DATABASE_URL`、`JWT_SECRET` 或 `UPLOAD_PATH` 缺失时**进程会直接启动失败**，这是有意的 fail-fast。
 `.env` 不入库，密钥只放在部署环境的 `.env` 或环境变量里。
 
 > 本机开发可以用 unix socket 免密写法 `postgresql:///greenlife?host=/tmp`，
@@ -143,7 +144,18 @@ location / {
 location /api/ {
     proxy_pass http://127.0.0.1:8080/;
 }
+
+# 物种照片：nginx 直接读磁盘，不经过后端。
+# alias 必须指向后端的 UPLOAD_PATH，并以斜杠结尾。
+location /uploads/ {
+    alias /srv/greenlife/uploads/;
+    expires 7d;
+    add_header Cache-Control "public";
+}
 ```
+
+文件名是 UUID，内容不会变，所以缓存可以放长。上传接口仍走 `/api/staff/photos`
+（POST multipart），只有图片文件的读取由 nginx 接手。
 
 推荐**同源**部署（前端静态资源和 API 同一个域名），这样不涉及跨域。
 若前端最终独立部署在其它域名下，需要先给服务端加 CORS 配置（**目前未配置**）。

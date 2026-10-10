@@ -20,8 +20,11 @@ export interface SpeciesCardTarget {
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { errorMessage } from '../api/http'
+import { listPhotos } from '../api/photos'
 import { getTaxon } from '../api/taxonomy'
+import { useAuthStore } from '../stores/auth'
 import { RANKS, rankLabel, type Taxon } from '../taxonomy'
 import { formatTimestamp } from '../types'
 import NoteText from './NoteText.vue'
@@ -49,6 +52,11 @@ const chain = ref<Taxon[]>([])
 const loading = ref(false)
 const error = ref('')
 
+/// 这个物种已有的照片数：> 0 才显示「浏览照片」链接。
+const photoCount = ref(0)
+const auth = useAuthStore()
+const canUpload = computed(() => auth.canManageTaxonomy)
+
 /// 分类树很小且基本不变，同一 taxa 的祖先链缓存下来，反复点开不再请求。
 const chainCache = new Map<string, Taxon[]>()
 /// 连点两条记录时，只认最后一次请求的结果。
@@ -71,9 +79,20 @@ async function open(target: SpeciesCardTarget, info?: InfoRow[]): Promise<void> 
   chain.value = []
   error.value = ''
   loading.value = false
+  photoCount.value = 0
   if (dialog.value !== null && !dialog.value.open) {
     dialog.value.showModal()
   }
+
+  // 照片数只用于决定要不要显示「浏览照片」链接，拿第一页的 total 就够了。
+  // 失败就当没有照片（公开接口，拒绝访问时不该把卡片整体打挂）。
+  void listPhotos({ taxonId: target.taxon_id, limit: 1 })
+    .then((page) => {
+      if (seq === requestSeq) {
+        photoCount.value = page.total
+      }
+    })
+    .catch(() => {})
 
   const cached = chainCache.get(target.taxon_id)
   if (cached !== undefined) {
@@ -115,6 +134,21 @@ defineExpose({ open })
           </p>
         </div>
         <div class="head-actions">
+          <!-- 照片入口：任何登录的 STAFF / ADMIN 都能上传，游客只能看。 -->
+          <RouterLink
+            v-if="canUpload"
+            class="link-button"
+            :to="{ name: 'photos', query: { taxon: record.taxon_id, upload: '1' } }"
+          >
+            上传照片
+          </RouterLink>
+          <RouterLink
+            v-if="photoCount > 0"
+            class="link-button secondary"
+            :to="{ name: 'photos', query: { taxon: record.taxon_id } }"
+          >
+            浏览照片（{{ photoCount }}）
+          </RouterLink>
           <!-- 调用方从这里加针对这条记录的动作按钮（例如「添加新重要记录」）。
                一起把 close 交出去，按钮自己决定什么时候收起卡片。 -->
           <slot name="actions" :record="record" :close="close" />

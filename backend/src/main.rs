@@ -9,14 +9,17 @@ mod maintenance_models;
 mod middleware;
 mod models;
 mod permissions;
+mod photo_handlers;
+mod photo_models;
 mod schema;
 mod taxonomy_handlers;
 mod taxonomy_models;
 mod user_handlers;
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, UPLOAD_URL_PREFIX};
 use crate::db::DbPool;
 use crate::permissions::Permissions;
+use actix_files::Files;
 use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::{get, middleware::Logger, web, App, HttpResponse, HttpServer};
 use diesel::prelude::*;
@@ -54,6 +57,10 @@ async fn main() -> std::io::Result<()> {
         .seconds_per_request(2)
         .finish()
         .expect("login rate limit config is valid");
+
+    // 照片目录。开发环境由后端直接提供静态文件；线上 nginx 的 `location /uploads/`
+    // 会先命中，根本不会转发到这里（见 README）。
+    let upload_dir = config.upload_path.clone();
 
     log::info!("Starting server at http://{}", server_address);
 
@@ -117,6 +124,17 @@ async fn main() -> std::io::Result<()> {
                             .service(bird_handlers::create_bird_record)
                             .service(bird_handlers::update_bird_record)
                             .service(bird_handlers::delete_bird_record),
+                    )
+                    // 物种照片的写接口。上传是 multipart，放宽 payload 上限，
+                    // 让「2 MiB 照片 + 表单字段」过得去（具体大小在处理器里再校）。
+                    .service(
+                        web::scope("/photos")
+                            .app_data(web::PayloadConfig::new(
+                                photo_models::MAX_UPLOAD_REQUEST_BYTES,
+                            ))
+                            .service(photo_handlers::create_photo)
+                            .service(photo_handlers::update_photo)
+                            .service(photo_handlers::delete_photo),
                     ),
             )
             // 分类树 / 名录的读接口：公开，未登录也能浏览物种。
@@ -143,6 +161,15 @@ async fn main() -> std::io::Result<()> {
                     .service(bird_handlers::list_bird_records)
                     .service(bird_handlers::get_bird_record),
             )
+            // 物种照片的读接口：同样公开。
+            .service(
+                web::scope("/photos")
+                    .service(photo_handlers::list_photos)
+                    .service(photo_handlers::get_photo),
+            )
+            // 开发环境直接由后端提供照片文件；线上由 nginx 的 `location /uploads/`
+            // 指向 UPLOAD_PATH，这条路由不会命中。
+            .service(Files::new(UPLOAD_URL_PREFIX, upload_dir.clone()).prefer_utf8(true))
     })
     .bind(&server_address)?
     .run()

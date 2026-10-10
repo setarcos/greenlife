@@ -5,6 +5,7 @@ import AppLayout from '../layouts/AppLayout.vue'
 import BirdSurveyView from '../views/BirdSurveyView.vue'
 import LoginView from '../views/LoginView.vue'
 import MaintenanceLogsView from '../views/MaintenanceLogsView.vue'
+import PhotosView from '../views/PhotosView.vue'
 import ProfileView from '../views/ProfileView.vue'
 import SpeciesListsView from '../views/SpeciesListsView.vue'
 import SpeciesSearchView from '../views/SpeciesSearchView.vue'
@@ -26,6 +27,8 @@ export const router = createRouter({
         { path: 'tree', name: 'taxonomy-tree', component: TaxonomyTreeView },
         { path: 'search', name: 'species-search', component: SpeciesSearchView },
         { path: 'birds', name: 'bird-survey', component: BirdSurveyView },
+        // 物种照片：公开可读，从物种卡片进入（`?taxon=<id>`）。
+        { path: 'photos', name: 'photos', component: PhotosView },
         { path: 'logs', name: 'maintenance-logs', component: MaintenanceLogsView },
         {
           path: 'profile',

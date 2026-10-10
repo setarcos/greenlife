@@ -17,6 +17,13 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // 照片文件。线上由 nginx 的 `location /uploads/` 直接指向 UPLOAD_PATH；
+      // 开发环境没有 nginx，改由后端自己的静态文件服务提供（见 backend/src/main.rs），
+      // 所以不需要 rewrite。
+      '/uploads': {
+        target: BACKEND,
+        changeOrigin: true,
+      },
     },
   },
 })

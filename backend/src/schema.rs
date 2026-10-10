@@ -56,6 +56,31 @@ diesel::table! {
 }
 
 diesel::table! {
+    species_photos (id) {
+        id -> Uuid,
+        taxon_id -> Uuid,
+        #[max_length = 200]
+        photographer -> Nullable<Varchar>,
+        #[max_length = 50]
+        uploader_username -> Varchar,
+        taken_at -> Date,
+        #[max_length = 200]
+        location -> Nullable<Varchar>,
+        note -> Nullable<Text>,
+        rating -> Nullable<Int2>,
+        is_important -> Bool,
+        file_path -> Text,
+        #[max_length = 255]
+        original_filename -> Nullable<Varchar>,
+        file_size -> Int8,
+        #[max_length = 100]
+        content_type -> Nullable<Varchar>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     species_records (id) {
         id -> Uuid,
         list_id -> Uuid,
@@ -108,6 +133,7 @@ diesel::table! {
 
 diesel::joinable!(bird_records -> taxa (taxon_id));
 diesel::joinable!(maintenance_logs -> species_lists (list_id));
+diesel::joinable!(species_photos -> taxa (taxon_id));
 diesel::joinable!(species_records -> species_lists (list_id));
 diesel::joinable!(species_records -> taxa (taxon_id));
 
@@ -115,6 +141,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     bird_records,
     maintenance_logs,
     species_lists,
+    species_photos,
     species_records,
     taxa,
     users,
