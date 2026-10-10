@@ -8,8 +8,9 @@ use crate::db::{blocking_db, DbConn, DbPool};
 use crate::errors::ServiceError;
 use crate::maintenance_models::*;
 use crate::schema::{maintenance_logs, species_lists};
-use crate::taxonomy_handlers::{like_pattern, page};
+use crate::taxonomy_handlers::{like_pattern, page, Paged};
 use actix_web::{delete, get, patch, post, web, HttpResponse};
+use diesel::pg::Pg;
 use diesel::prelude::*;
 use serde_json::json;
 use uuid::Uuid;
@@ -34,32 +35,45 @@ async fn list_maintenance_logs(
     let pattern = query.q.as_deref().map(like_pattern);
 
     let items = blocking_db(pool, move |conn| {
-        let mut q = maintenance_logs::table.into_boxed();
-        if let Some(list_id) = list_id {
-            q = q.filter(maintenance_logs::list_id.eq(list_id));
-        }
-        if let Some(pattern) = pattern {
-            q = q.filter(
-                maintenance_logs::summary
-                    .ilike(pattern.clone())
-                    .or(maintenance_logs::author.ilike(pattern).assume_not_null()),
-            );
-        }
-        q.order((
-            // is_null() 升序 = 非空在前（PostgreSQL 里 false < true）。
-            maintenance_logs::entry_date.is_null().asc(),
-            maintenance_logs::entry_date.desc(),
-            maintenance_logs::id.asc(),
-        ))
-        .limit(limit)
-        .offset(offset)
-        .select(MaintenanceLog::as_select())
-        .load::<MaintenanceLog>(conn)
-        .map_err(ServiceError::from)
+        let total = maintenance_logs_query(list_id, pattern.clone())
+            .count()
+            .get_result::<i64>(conn)?;
+        let items = maintenance_logs_query(list_id, pattern)
+            .order((
+                // is_null() 升序 = 非空在前（PostgreSQL 里 false < true）。
+                maintenance_logs::entry_date.is_null().asc(),
+                maintenance_logs::entry_date.desc(),
+                maintenance_logs::id.asc(),
+            ))
+            .limit(limit)
+            .offset(offset)
+            .select(MaintenanceLog::as_select())
+            .load::<MaintenanceLog>(conn)?;
+
+        Ok(Paged { items, total })
     })
     .await?;
 
     Ok(HttpResponse::Ok().json(items))
+}
+
+/// 维护日志的筛选条件。取总数和取当前页都走它。
+fn maintenance_logs_query(
+    list_id: Option<Uuid>,
+    pattern: Option<String>,
+) -> maintenance_logs::BoxedQuery<'static, Pg> {
+    let mut q = maintenance_logs::table.into_boxed();
+    if let Some(list_id) = list_id {
+        q = q.filter(maintenance_logs::list_id.eq(list_id));
+    }
+    if let Some(pattern) = pattern {
+        q = q.filter(
+            maintenance_logs::summary
+                .ilike(pattern.clone())
+                .or(maintenance_logs::author.ilike(pattern).assume_not_null()),
+        );
+    }
+    q
 }
 
 /// 单条维护日志。

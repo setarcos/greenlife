@@ -8,8 +8,10 @@ use crate::bird_models::*;
 use crate::db::{blocking_db, DbConn, DbPool};
 use crate::errors::ServiceError;
 use crate::schema::{bird_records, taxa};
-use crate::taxonomy_handlers::{like_pattern, page};
+use crate::taxonomy_handlers::{like_pattern, page, Paged};
 use actix_web::{delete, get, patch, post, web, HttpResponse};
+use chrono::NaiveDate;
+use diesel::pg::Pg;
 use diesel::prelude::*;
 use serde_json::json;
 use uuid::Uuid;
@@ -45,41 +47,55 @@ async fn list_bird_records(
     }
 
     let items = blocking_db(pool, move |conn| {
-        let mut q = bird_records::table.into_boxed();
-        if let Some(pattern) = pattern {
-            q = q.filter(
-                bird_records::scientific_name
-                    .ilike(pattern.clone())
-                    .or(bird_records::chinese_name
-                        .ilike(pattern.clone())
-                        .assume_not_null())
-                    .or(bird_records::observer
-                        .ilike(pattern.clone())
-                        .assume_not_null())
-                    .or(bird_records::location.ilike(pattern).assume_not_null()),
-            );
-        }
-        // 两个比较都写出来，NULL（认不出日期的记录）会在任意一侧被过滤掉。
-        if let Some(from) = from {
-            q = q.filter(bird_records::observed_to.ge(from));
-        }
-        if let Some(to) = to {
-            q = q.filter(bird_records::observed_from.le(to));
-        }
-        q.order((
-            bird_records::scientific_name.asc(),
-            bird_records::observed_at.asc().nulls_last(),
-            bird_records::id.asc(),
-        ))
-        .limit(limit)
-        .offset(offset)
-        .select(BirdRecord::as_select())
-        .load::<BirdRecord>(conn)
-        .map_err(ServiceError::from)
+        let total = bird_records_query(pattern.clone(), from, to)
+            .count()
+            .get_result::<i64>(conn)?;
+        let items = bird_records_query(pattern, from, to)
+            .order((
+                bird_records::scientific_name.asc(),
+                bird_records::observed_at.asc().nulls_last(),
+                bird_records::id.asc(),
+            ))
+            .limit(limit)
+            .offset(offset)
+            .select(BirdRecord::as_select())
+            .load::<BirdRecord>(conn)?;
+
+        Ok(Paged { items, total })
     })
     .await?;
 
     Ok(HttpResponse::Ok().json(items))
+}
+
+/// 重要记录的筛选条件。取总数和取当前页都走它。
+fn bird_records_query(
+    pattern: Option<String>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+) -> bird_records::BoxedQuery<'static, Pg> {
+    let mut q = bird_records::table.into_boxed();
+    if let Some(pattern) = pattern {
+        q = q.filter(
+            bird_records::scientific_name
+                .ilike(pattern.clone())
+                .or(bird_records::chinese_name
+                    .ilike(pattern.clone())
+                    .assume_not_null())
+                .or(bird_records::observer
+                    .ilike(pattern.clone())
+                    .assume_not_null())
+                .or(bird_records::location.ilike(pattern).assume_not_null()),
+        );
+    }
+    // 两个比较都写出来，NULL（认不出日期的记录）会在任意一侧被过滤掉。
+    if let Some(from) = from {
+        q = q.filter(bird_records::observed_to.ge(from));
+    }
+    if let Some(to) = to {
+        q = q.filter(bird_records::observed_from.le(to));
+    }
+    q
 }
 
 /// 单条重要记录。

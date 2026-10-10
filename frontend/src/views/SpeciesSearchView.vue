@@ -2,8 +2,10 @@
 import { onMounted, ref } from 'vue'
 import { errorMessage } from '../api/http'
 import { listRecords, listSpeciesLists } from '../api/taxonomy'
+import ListPager from '../components/ListPager.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
+import { clampOffset } from '../pagination'
 import type { SpeciesList, SpeciesRecord } from '../taxonomy'
 
 const PAGE_SIZE = 50
@@ -24,7 +26,7 @@ const records = ref<SpeciesRecord[]>([])
 const loading = ref(false)
 const error = ref('')
 const offset = ref(0)
-const hasMore = ref(false)
+const total = ref(0)
 const searched = ref(false)
 
 function listName(id: string): string {
@@ -35,7 +37,7 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    records.value = await listRecords({
+    const page = await listRecords({
       listId: listId.value === '' ? undefined : listId.value,
       taxonId: taxonId.value ?? undefined,
       // descendants 只在选了类群时才有意义。
@@ -44,7 +46,15 @@ async function load(): Promise<void> {
       limit: PAGE_SIZE,
       offset: offset.value,
     })
-    hasMore.value = records.value.length === PAGE_SIZE
+    // 筛选条件变了之后当前页可能已经越过末页，退回去重拉一次。
+    const clamped = clampOffset(offset.value, page.total, PAGE_SIZE)
+    if (clamped !== offset.value) {
+      offset.value = clamped
+      await load()
+      return
+    }
+    records.value = page.items
+    total.value = page.total
     searched.value = true
   } catch (e) {
     error.value = errorMessage(e)
@@ -79,13 +89,8 @@ async function reset(): Promise<void> {
   await load()
 }
 
-async function prevPage(): Promise<void> {
-  offset.value = Math.max(0, offset.value - PAGE_SIZE)
-  await load()
-}
-
-async function nextPage(): Promise<void> {
-  offset.value += PAGE_SIZE
+async function goToPage(page: number): Promise<void> {
+  offset.value = (page - 1) * PAGE_SIZE
   await load()
 }
 </script>
@@ -144,15 +149,14 @@ async function nextPage(): Promise<void> {
         </template>
       </SpeciesRecordTable>
 
-      <div v-if="searched" class="pager">
-        <button class="secondary" type="button" :disabled="offset === 0" @click="prevPage">
-          上一页
-        </button>
-        <span class="muted">第 {{ offset / PAGE_SIZE + 1 }} 页</span>
-        <button class="secondary" type="button" :disabled="!hasMore" @click="nextPage">
-          下一页
-        </button>
-      </div>
+      <ListPager
+        v-if="searched"
+        :total="total"
+        :page-size="PAGE_SIZE"
+        :page="offset / PAGE_SIZE + 1"
+        :disabled="loading"
+        @change="goToPage"
+      />
     </section>
   </div>
 </template>

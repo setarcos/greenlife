@@ -1,5 +1,6 @@
 import { http } from './http'
 import type { BirdRecord } from '../birds'
+import type { Paged } from '../pagination'
 
 /// 读接口挂在公开的 `/bird-records` 下，写接口挂在 `/staff/bird-records`
 /// （STAFF 或 ADMIN），见 backend/src/main.rs。
@@ -16,9 +17,9 @@ export interface BirdRecordQuery {
   offset?: number
 }
 
-/// GET /bird-records
-export async function listBirdRecords(query: BirdRecordQuery = {}): Promise<BirdRecord[]> {
-  const { data } = await http.get<BirdRecord[]>('/bird-records', {
+/// GET /bird-records：分页响应带总数，供页码条用。
+export async function listBirdRecords(query: BirdRecordQuery = {}): Promise<Paged<BirdRecord>> {
+  const { data } = await http.get<Paged<BirdRecord>>('/bird-records', {
     params: {
       q: query.q,
       from: query.from,

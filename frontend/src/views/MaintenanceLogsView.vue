@@ -9,8 +9,10 @@ import {
 } from '../api/maintenanceLogs'
 import { listSpeciesLists } from '../api/taxonomy'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ListPager from '../components/ListPager.vue'
 import { useAuthStore } from '../stores/auth'
 import type { MaintenanceLog } from '../maintenanceLogs'
+import { clampOffset } from '../pagination'
 import type { SpeciesList } from '../taxonomy'
 import { AUTHOR_MAX_CHARS, ENTRY_DATE_MAX_CHARS, charCount } from '../validation'
 
@@ -30,7 +32,7 @@ const filterListId = ref('')
 const keyword = ref('')
 const appliedKeyword = ref('')
 const offset = ref(0)
-const hasMore = ref(false)
+const total = ref(0)
 
 function listName(id: string | null): string {
   if (id === null) {
@@ -49,14 +51,21 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    logs.value = await listMaintenanceLogs({
+    const page = await listMaintenanceLogs({
       listId: filterListId.value === '' ? undefined : filterListId.value,
       q: appliedKeyword.value === '' ? undefined : appliedKeyword.value,
       limit: PAGE_SIZE,
       offset: offset.value,
     })
-    // 后端不返回总数，只能靠「这一页是否装满」判断还有没有下一页。
-    hasMore.value = logs.value.length === PAGE_SIZE
+    // 删日志后当前页可能已经越过末页，退回去重拉一次（clampOffset 幂等）。
+    const clamped = clampOffset(offset.value, page.total, PAGE_SIZE)
+    if (clamped !== offset.value) {
+      offset.value = clamped
+      await load()
+      return
+    }
+    logs.value = page.items
+    total.value = page.total
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -91,13 +100,8 @@ async function filterChanged(): Promise<void> {
   await load()
 }
 
-async function prevPage(): Promise<void> {
-  offset.value = Math.max(0, offset.value - PAGE_SIZE)
-  await load()
-}
-
-async function nextPage(): Promise<void> {
-  offset.value += PAGE_SIZE
+async function goToPage(page: number): Promise<void> {
+  offset.value = (page - 1) * PAGE_SIZE
   await load()
 }
 
@@ -293,15 +297,14 @@ async function confirmDelete(): Promise<void> {
         </p>
       </div>
 
-      <div v-if="!loading" class="pager">
-        <button class="secondary" type="button" :disabled="offset === 0" @click="prevPage">
-          上一页
-        </button>
-        <span class="muted">第 {{ offset / PAGE_SIZE + 1 }} 页</span>
-        <button class="secondary" type="button" :disabled="!hasMore" @click="nextPage">
-          下一页
-        </button>
-      </div>
+      <ListPager
+        v-if="!loading"
+        :total="total"
+        :page-size="PAGE_SIZE"
+        :page="offset / PAGE_SIZE + 1"
+        :disabled="loading"
+        @change="goToPage"
+      />
     </section>
   </div>
 

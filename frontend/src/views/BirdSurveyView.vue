@@ -10,10 +10,12 @@ import { errorMessage } from '../api/http'
 import { findTaxonId, listRecords } from '../api/taxonomy'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import NoteText from '../components/NoteText.vue'
+import ListPager from '../components/ListPager.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import SpeciesCard from '../components/SpeciesCard.vue'
 import { useAuthStore } from '../stores/auth'
 import { BIRD_CLASS_SCIENTIFIC_NAME, type BirdRecord } from '../birds'
+import { clampOffset } from '../pagination'
 import { taxonLabel, type SpeciesRecord } from '../taxonomy'
 import { formatTimestamp } from '../types'
 import {
@@ -59,7 +61,7 @@ const speciesError = ref('')
 const speciesKeyword = ref('')
 const speciesAppliedKeyword = ref('')
 const speciesOffset = ref(0)
-const speciesHasMore = ref(false)
+const speciesTotal = ref(0)
 /// 鸟纲节点 id，首次加载时从分类树里查出来（不写死 UUID）。
 const birdClassId = ref<string | null>(null)
 
@@ -71,15 +73,15 @@ async function loadSpeciesRecords(): Promise<void> {
   speciesLoading.value = true
   speciesError.value = ''
   try {
-    speciesRecords.value = await listRecords({
+    const page = await listRecords({
       taxonId: birdClassId.value,
       descendants: true,
       q: speciesAppliedKeyword.value === '' ? undefined : speciesAppliedKeyword.value,
       limit: PAGE_SIZE,
       offset: speciesOffset.value,
     })
-    // 后端不返回总数，只能靠「这一页是否装满」判断还有没有下一页。
-    speciesHasMore.value = speciesRecords.value.length === PAGE_SIZE
+    speciesRecords.value = page.items
+    speciesTotal.value = page.total
   } catch (e) {
     speciesError.value = errorMessage(e)
   } finally {
@@ -100,13 +102,8 @@ async function clearSpeciesSearch(): Promise<void> {
   await loadSpeciesRecords()
 }
 
-async function prevSpeciesPage(): Promise<void> {
-  speciesOffset.value = Math.max(0, speciesOffset.value - PAGE_SIZE)
-  await loadSpeciesRecords()
-}
-
-async function nextSpeciesPage(): Promise<void> {
-  speciesOffset.value += PAGE_SIZE
+async function goToSpeciesPage(page: number): Promise<void> {
+  speciesOffset.value = (page - 1) * PAGE_SIZE
   await loadSpeciesRecords()
 }
 
@@ -125,7 +122,7 @@ const recordsTo = ref('')
 const recordsAppliedFrom = ref('')
 const recordsAppliedTo = ref('')
 const recordsOffset = ref(0)
-const recordsHasMore = ref(false)
+const recordsTotal = ref(0)
 const savedMessage = ref('')
 
 /// 鸟纲下的全部鸟种，供「新增 / 编辑重要记录」的下拉框用。
@@ -139,14 +136,22 @@ async function loadRecords(): Promise<void> {
   recordsLoading.value = true
   recordsError.value = ''
   try {
-    records.value = await listBirdRecords({
+    const page = await listBirdRecords({
       q: recordsAppliedKeyword.value === '' ? undefined : recordsAppliedKeyword.value,
       from: recordsAppliedFrom.value === '' ? undefined : recordsAppliedFrom.value,
       to: recordsAppliedTo.value === '' ? undefined : recordsAppliedTo.value,
       limit: PAGE_SIZE,
       offset: recordsOffset.value,
     })
-    recordsHasMore.value = records.value.length === PAGE_SIZE
+    // 删记录 / 改筛选条件后当前页可能已经越过末页，退回去重拉一次。
+    const clamped = clampOffset(recordsOffset.value, page.total, PAGE_SIZE)
+    if (clamped !== recordsOffset.value) {
+      recordsOffset.value = clamped
+      await loadRecords()
+      return
+    }
+    records.value = page.items
+    recordsTotal.value = page.total
   } catch (e) {
     recordsError.value = errorMessage(e)
   } finally {
@@ -181,13 +186,8 @@ const recordsFiltered = computed(
     recordsAppliedTo.value !== '',
 )
 
-async function prevRecordsPage(): Promise<void> {
-  recordsOffset.value = Math.max(0, recordsOffset.value - PAGE_SIZE)
-  await loadRecords()
-}
-
-async function nextRecordsPage(): Promise<void> {
-  recordsOffset.value += PAGE_SIZE
+async function goToRecordsPage(page: number): Promise<void> {
+  recordsOffset.value = (page - 1) * PAGE_SIZE
   await loadRecords()
 }
 
@@ -203,7 +203,7 @@ async function loadBirdOptions(): Promise<void> {
       descendants: true,
       limit: 1000,
     })
-    birdOptions.value = all
+    birdOptions.value = all.items
   } catch (e) {
     birdOptionsError.value = errorMessage(e)
   }
@@ -483,25 +483,13 @@ onMounted(async () => {
           </template>
         </SpeciesRecordTable>
 
-        <div class="pager">
-          <button
-            class="secondary"
-            type="button"
-            :disabled="speciesOffset === 0"
-            @click="prevSpeciesPage"
-          >
-            上一页
-          </button>
-          <span class="muted">第 {{ speciesOffset / PAGE_SIZE + 1 }} 页</span>
-          <button
-            class="secondary"
-            type="button"
-            :disabled="!speciesHasMore"
-            @click="nextSpeciesPage"
-          >
-            下一页
-          </button>
-        </div>
+        <ListPager
+          :total="speciesTotal"
+          :page-size="PAGE_SIZE"
+          :page="speciesOffset / PAGE_SIZE + 1"
+          :disabled="speciesLoading"
+          @change="goToSpeciesPage"
+        />
       </template>
 
       <!-- 重要记录 -->
@@ -590,25 +578,13 @@ onMounted(async () => {
           </table>
         </div>
 
-        <div class="pager">
-          <button
-            class="secondary"
-            type="button"
-            :disabled="recordsOffset === 0"
-            @click="prevRecordsPage"
-          >
-            上一页
-          </button>
-          <span class="muted">第 {{ recordsOffset / PAGE_SIZE + 1 }} 页</span>
-          <button
-            class="secondary"
-            type="button"
-            :disabled="!recordsHasMore"
-            @click="nextRecordsPage"
-          >
-            下一页
-          </button>
-        </div>
+        <ListPager
+          :total="recordsTotal"
+          :page-size="PAGE_SIZE"
+          :page="recordsOffset / PAGE_SIZE + 1"
+          :disabled="recordsLoading"
+          @change="goToRecordsPage"
+        />
       </template>
 
       <!-- 鸟调记录 -->

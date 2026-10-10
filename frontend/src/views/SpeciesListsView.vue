@@ -11,9 +11,11 @@ import {
   updateSpeciesList,
 } from '../api/staffTaxonomy'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ListPager from '../components/ListPager.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
 import { useAuthStore } from '../stores/auth'
+import { clampOffset } from '../pagination'
 import type { SpeciesList, SpeciesListDetail, SpeciesRecord } from '../taxonomy'
 import {
   LIST_NAME_MAX_CHARS,
@@ -42,7 +44,8 @@ const recordsError = ref('')
 const keyword = ref('')
 const appliedKeyword = ref('')
 const offset = ref(0)
-const hasMore = ref(false)
+/// 满足筛选条件的总条数（后端分页响应的 total），页码条靠它算总页数。
+const recordsTotal = ref(0)
 
 /// 操作成功后 modal 已关，提示回显在卡片里。
 const savedMessage = ref('')
@@ -74,20 +77,27 @@ async function loadRecords(): Promise<void> {
   const id = selectedId.value
   if (id === null) {
     records.value = []
-    hasMore.value = false
+    recordsTotal.value = 0
     return
   }
   recordsLoading.value = true
   recordsError.value = ''
   try {
-    records.value = await listRecords({
+    const page = await listRecords({
       listId: id,
       q: appliedKeyword.value === '' ? undefined : appliedKeyword.value,
       limit: PAGE_SIZE,
       offset: offset.value,
     })
-    // 后端不返回总数，只能靠「这一页是否装满」判断还有没有下一页。
-    hasMore.value = records.value.length === PAGE_SIZE
+    // 删记录后当前页可能已经越过末页，退回去重拉一次（clampOffset 幂等）。
+    const clamped = clampOffset(offset.value, page.total, PAGE_SIZE)
+    if (clamped !== offset.value) {
+      offset.value = clamped
+      await loadRecords()
+      return
+    }
+    records.value = page.items
+    recordsTotal.value = page.total
   } catch (e) {
     recordsError.value = errorMessage(e)
   } finally {
@@ -143,13 +153,8 @@ async function clearSearch(): Promise<void> {
   await loadRecords()
 }
 
-async function prevPage(): Promise<void> {
-  offset.value = Math.max(0, offset.value - PAGE_SIZE)
-  await loadRecords()
-}
-
-async function nextPage(): Promise<void> {
-  offset.value += PAGE_SIZE
+async function goToPage(page: number): Promise<void> {
+  offset.value = (page - 1) * PAGE_SIZE
   await loadRecords()
 }
 
@@ -517,15 +522,13 @@ async function confirmDeleteRecord(): Promise<void> {
         </template>
       </SpeciesRecordTable>
 
-      <div class="pager">
-        <button class="secondary" type="button" :disabled="offset === 0" @click="prevPage">
-          上一页
-        </button>
-        <span class="muted">第 {{ offset / PAGE_SIZE + 1 }} 页</span>
-        <button class="secondary" type="button" :disabled="!hasMore" @click="nextPage">
-          下一页
-        </button>
-      </div>
+      <ListPager
+        :total="recordsTotal"
+        :page-size="PAGE_SIZE"
+        :page="offset / PAGE_SIZE + 1"
+        :disabled="recordsLoading"
+        @change="goToPage"
+      />
     </section>
   </div>
 

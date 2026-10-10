@@ -1,4 +1,5 @@
 import { http } from './http'
+import type { Paged } from '../pagination'
 import type {
   RankInfo,
   SpeciesList,
@@ -98,9 +99,9 @@ export async function getSpeciesList(listId: string): Promise<SpeciesListDetail>
   return data
 }
 
-/// GET /taxonomy/records：记录列表。
-export async function listRecords(query: RecordQuery = {}): Promise<SpeciesRecord[]> {
-  const { data } = await http.get<SpeciesRecord[]>('/taxonomy/records', {
+/// GET /taxonomy/records：记录列表（分页响应带总数，供页码条用）。
+export async function listRecords(query: RecordQuery = {}): Promise<Paged<SpeciesRecord>> {
+  const { data } = await http.get<Paged<SpeciesRecord>>('/taxonomy/records', {
     params: {
       list_id: query.listId,
       taxon_id: query.taxonId,

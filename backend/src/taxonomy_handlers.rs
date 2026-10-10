@@ -8,6 +8,7 @@ use crate::errors::ServiceError;
 use crate::schema::{species_lists, species_records, taxa};
 use crate::taxonomy_models::*;
 use actix_web::{delete, get, patch, post, web, HttpResponse};
+use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::sql_types::Uuid as SqlUuid;
 use serde::Serialize;
@@ -24,6 +25,16 @@ pub(crate) fn page(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
         limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT),
         offset.unwrap_or(0).max(0),
     )
+}
+
+/// 分页列表的统一响应：本页数据 + 满足条件的总条数。
+///
+/// `total` 是给前端算总页数、直接跳页用的。没有它，前端只能靠「这一页有没有
+/// 装满」猜下一屏还有没有，更谈不上跳到指定页。
+#[derive(Serialize, Debug)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub total: i64,
 }
 
 /// 把用户输入变成 `%...%` 的 LIKE 模式，并转义 `%` / `_` / `\`。
@@ -285,43 +296,57 @@ async fn list_records(
     let descendants = query.descendants.unwrap_or(false);
     let pattern = query.q.as_deref().map(like_pattern);
 
-    let items = blocking_db(pool, move |conn| {
-        let mut q = species_records::table.into_boxed();
-        if let Some(list_id) = list_id {
-            q = q.filter(species_records::list_id.eq(list_id));
-        }
-        if let Some(taxon_id) = taxon_id {
-            if descendants {
-                let ids = descendant_taxon_ids(conn, taxon_id)?;
-                q = q.filter(species_records::taxon_id.eq_any(ids));
-            } else {
-                q = q.filter(species_records::taxon_id.eq(taxon_id));
-            }
-        }
-        if let Some(pattern) = pattern {
-            q = q.filter(
-                species_records::scientific_name
-                    .ilike(pattern.clone())
-                    .or(
-                        species_records::chinese_name
-                            .ilike(pattern)
-                            .assume_not_null(),
-                    ),
-            );
-        }
-        q.order((
-            species_records::scientific_name.asc(),
-            species_records::id.asc(),
-        ))
-        .limit(limit)
-        .offset(offset)
-        .select(SpeciesRecord::as_select())
-        .load::<SpeciesRecord>(conn)
-        .map_err(ServiceError::from)
+    let result = blocking_db(pool, move |conn| {
+        // 筛选条件只算一次：总数和当前页共用同一组 taxon id。
+        let taxon_ids = match taxon_id {
+            None => None,
+            Some(id) if descendants => Some(descendant_taxon_ids(conn, id)?),
+            Some(id) => Some(vec![id]),
+        };
+
+        let total = records_query(list_id, taxon_ids.clone(), pattern.clone())
+            .count()
+            .get_result::<i64>(conn)?;
+        let items = records_query(list_id, taxon_ids, pattern)
+            .order((
+                species_records::scientific_name.asc(),
+                species_records::id.asc(),
+            ))
+            .limit(limit)
+            .offset(offset)
+            .select(SpeciesRecord::as_select())
+            .load::<SpeciesRecord>(conn)?;
+
+        Ok(Paged { items, total })
     })
     .await?;
 
-    Ok(HttpResponse::Ok().json(items))
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// 名录记录的筛选条件。取总数和取当前页都走它，避免两处各写一遍之后慢慢走偏。
+fn records_query(
+    list_id: Option<Uuid>,
+    taxon_ids: Option<Vec<Uuid>>,
+    pattern: Option<String>,
+) -> species_records::BoxedQuery<'static, Pg> {
+    let mut q = species_records::table.into_boxed();
+    if let Some(list_id) = list_id {
+        q = q.filter(species_records::list_id.eq(list_id));
+    }
+    if let Some(taxon_ids) = taxon_ids {
+        q = q.filter(species_records::taxon_id.eq_any(taxon_ids));
+    }
+    if let Some(pattern) = pattern {
+        q = q.filter(
+            species_records::scientific_name.ilike(pattern.clone()).or(
+                species_records::chinese_name
+                    .ilike(pattern)
+                    .assume_not_null(),
+            ),
+        );
+    }
+    q
 }
 
 #[get("/records/{record_id}")]

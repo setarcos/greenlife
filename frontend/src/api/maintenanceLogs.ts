@@ -1,5 +1,6 @@
 import { http } from './http'
 import type { MaintenanceLog } from '../maintenanceLogs'
+import type { Paged } from '../pagination'
 
 /// 读接口挂在公开的 `/maintenance-logs` 下，写接口挂在 `/staff/maintenance-logs`
 /// （STAFF 或 ADMIN），见 backend/src/main.rs。
@@ -12,11 +13,11 @@ export interface MaintenanceLogQuery {
   offset?: number
 }
 
-/// GET /maintenance-logs
+/// GET /maintenance-logs：分页响应带总数，供页码条用。
 export async function listMaintenanceLogs(
   query: MaintenanceLogQuery = {},
-): Promise<MaintenanceLog[]> {
-  const { data } = await http.get<MaintenanceLog[]>('/maintenance-logs', {
+): Promise<Paged<MaintenanceLog>> {
+  const { data } = await http.get<Paged<MaintenanceLog>>('/maintenance-logs', {
     params: {
       list_id: query.listId,
       q: query.q,

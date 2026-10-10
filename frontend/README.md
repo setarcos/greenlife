@@ -38,19 +38,26 @@ src/
 ├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / canManageTaxonomy 由 role 推导
 ├── router/         路由表 + 守卫（requiresAuth / requiresAdmin）
 ├── layouts/        AppLayout：顶栏 + 导航 + 登录态
-├── components/     TaxonPicker（逐级下拉框）、TaxonTreeNode、SpeciesRecordTable、ConfirmDialog
+├── components/     TaxonPicker（逐级下拉框）、TaxonTreeNode、SpeciesRecordTable、ConfirmDialog、
+│                   ListPager（分页条：总页数 + 跳页）
 ├── views/          LoginView、ProfileView、UsersView、
 │                   SpeciesListsView（名录）、TaxonomyTreeView（分类树）、SpeciesSearchView（检索）、
 │                   BirdSurveyView（鸟类调查）、MaintenanceLogsView（维护日志）
 ├── taxonomy.ts     分类树 / 名录的类型与阶元辅助（阶元标签、深度、taxonLabel）
 ├── maintenanceLogs.ts  维护日志的类型
 ├── birds.ts        鸟类调查的类型
+├── pagination.ts   分页响应的类型与页码辅助（Paged / pageCount / clampOffset）
 ├── types.ts        与后端用户 DTO 对应的类型
 └── validation.ts   与 backend/src/*_models.rs 的长度常量对齐的前端校验
 ```
 
 ## 几个约定
 
+- **列表接口都返回 `{ items, total }`**（后端 `taxonomy_handlers::Paged`），不是裸数组。
+  `total` 是显示总页数、跳到指定页的前提（用 `components/ListPager.vue`），
+  光靠「这一页有没有装满」只能猜下一屏还有没有。新增列表接口时按这个形状返回，
+  并且**取总数和取当前页要共用同一组筛选条件**（见各 handler 里的 `*_query`）。
+  删完当前页的记录后 `total` 会变小，页面用 `pagination.ts::clampOffset` 退回末页。
 - **所有后端请求都带 `/api` 前缀**，由 `api/http.ts` 的 `baseURL` 统一加上，
   所以 `api/` 里的函数写的仍是后端真实路径（`/auth/login`、`/admin/users`），
   与 `backend/src/main.rs` 的 scope 一一对应。新加接口时也只写在 `baseURL` 之后。
