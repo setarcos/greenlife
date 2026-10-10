@@ -2,6 +2,8 @@ mod auth_handlers;
 mod config;
 mod db;
 mod errors;
+mod maintenance_handlers;
+mod maintenance_models;
 mod middleware;
 mod models;
 mod permissions;
@@ -99,6 +101,13 @@ async fn main() -> std::io::Result<()> {
                             .service(taxonomy_handlers::create_record)
                             .service(taxonomy_handlers::update_record)
                             .service(taxonomy_handlers::delete_record),
+                    )
+                    // 维护日志的写接口，同样 STAFF / ADMIN 可维护。
+                    .service(
+                        web::scope("/maintenance-logs")
+                            .service(maintenance_handlers::create_maintenance_log)
+                            .service(maintenance_handlers::update_maintenance_log)
+                            .service(maintenance_handlers::delete_maintenance_log),
                     ),
             )
             // 分类树 / 名录的读接口：公开，未登录也能浏览物种。
@@ -112,6 +121,12 @@ async fn main() -> std::io::Result<()> {
                     .service(taxonomy_handlers::get_list)
                     .service(taxonomy_handlers::list_records)
                     .service(taxonomy_handlers::get_record),
+            )
+            // 维护日志的读接口：同样公开。
+            .service(
+                web::scope("/maintenance-logs")
+                    .service(maintenance_handlers::list_maintenance_logs)
+                    .service(maintenance_handlers::get_maintenance_log),
             )
     })
     .bind(&server_address)?

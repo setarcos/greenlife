@@ -3,6 +3,7 @@ import { isForbidden } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import AppLayout from '../layouts/AppLayout.vue'
 import LoginView from '../views/LoginView.vue'
+import MaintenanceLogsView from '../views/MaintenanceLogsView.vue'
 import ProfileView from '../views/ProfileView.vue'
 import SpeciesListsView from '../views/SpeciesListsView.vue'
 import SpeciesSearchView from '../views/SpeciesSearchView.vue'
@@ -16,12 +17,13 @@ export const router = createRouter({
     {
       path: '/',
       component: AppLayout,
-      // 物种浏览（名录 / 分类树 / 检索）是公开的，和后端 /taxonomy 读接口一致；
-      // 只有「我的资料」和用户管理要登录。
+      // 物种浏览（名录 / 分类树 / 检索 / 维护日志）是公开的，和后端 /taxonomy、
+      // /maintenance-logs 读接口一致；只有「我的资料」和用户管理要登录。
       children: [
         { path: '', name: 'species-lists', component: SpeciesListsView },
         { path: 'tree', name: 'taxonomy-tree', component: TaxonomyTreeView },
         { path: 'search', name: 'species-search', component: SpeciesSearchView },
+        { path: 'logs', name: 'maintenance-logs', component: MaintenanceLogsView },
         {
           path: 'profile',
           name: 'profile',

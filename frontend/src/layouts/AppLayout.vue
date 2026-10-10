@@ -22,6 +22,7 @@ async function logout(): Promise<void> {
       <RouterLink to="/">物种名录</RouterLink>
       <RouterLink to="/tree">分类树</RouterLink>
       <RouterLink to="/search">物种检索</RouterLink>
+      <RouterLink to="/logs">维护日志</RouterLink>
       <RouterLink v-if="auth.user" to="/profile">我的资料</RouterLink>
       <!-- 服务端对 /admin/* 另有 ADMIN 校验，这里只是不显示进不去的入口 -->
       <RouterLink v-if="auth.isAdmin" to="/admin/users">用户管理</RouterLink>

@@ -18,7 +18,8 @@ use uuid::Uuid;
 const DEFAULT_LIMIT: i64 = 200;
 const MAX_LIMIT: i64 = 1000;
 
-fn page(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
+/// 分页参数归一：默认 200，最大 1000。维护日志的处理器也用它。
+pub(crate) fn page(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
     (
         limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT),
         offset.unwrap_or(0).max(0),
@@ -29,7 +30,7 @@ fn page(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
 ///
 /// 不转义的话，搜 `100%` 会变成通配符查询。PostgreSQL 的 LIKE 默认转义符是
 /// 反斜杠，而这里是绑定参数（不是字符串字面量），所以不需要额外的 ESCAPE 子句。
-fn like_pattern(q: &str) -> String {
+pub(crate) fn like_pattern(q: &str) -> String {
     let escaped = q
         .replace('\\', "\\\\")
         .replace('%', "\\%")

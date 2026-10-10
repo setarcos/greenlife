@@ -32,14 +32,17 @@ src/
 │   ├── auth.ts       /auth/login、/staff/me（读自己 / 改自己）
 │   ├── users.ts      /admin/user/*、/admin/users（都要 ADMIN）
 │   ├── taxonomy.ts   /taxonomy/*（公开读：阶元 / 分类树 / 名录 / 记录）
-│   └── staffTaxonomy.ts  /staff/taxonomy/*（STAFF 或 ADMIN 的增删改）
+│   ├── staffTaxonomy.ts  /staff/taxonomy/*（STAFF 或 ADMIN 的增删改）
+│   └── maintenanceLogs.ts  /maintenance-logs/*（公开读）与 /staff/maintenance-logs/*（写）
 ├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / canManageTaxonomy 由 role 推导
 ├── router/         路由表 + 守卫（requiresAuth / requiresAdmin）
 ├── layouts/        AppLayout：顶栏 + 导航 + 登录态
 ├── components/     TaxonPicker（逐级下拉框）、TaxonTreeNode、SpeciesRecordTable、ConfirmDialog
 ├── views/          LoginView、ProfileView、UsersView、
-│                   SpeciesListsView（名录）、TaxonomyTreeView（分类树）、SpeciesSearchView（检索）
+│                   SpeciesListsView（名录）、TaxonomyTreeView（分类树）、SpeciesSearchView（检索）、
+│                   MaintenanceLogsView（维护日志）
 ├── taxonomy.ts     分类树 / 名录的类型与阶元辅助（阶元标签、深度、taxonLabel）
+├── maintenanceLogs.ts  维护日志的类型
 ├── types.ts        与后端用户 DTO 对应的类型
 └── validation.ts   与 backend/src/*_models.rs 的长度常量对齐的前端校验
 ```
@@ -68,12 +71,14 @@ src/
 | `/`            | 所有人 | 「物种名录」：选名录、浏览 / 搜索记录（读接口公开） |
 | `/tree`        | 所有人 | 「分类树」：展开分类树、查看节点路径与子节点        |
 | `/search`      | 所有人 | 「物种检索」：按名录 / 类群 / 关键字查记录          |
+| `/logs`        | 所有人 | 「维护日志」：按名录浏览 / 搜索修订记录             |
 | `/profile`     | 已登录 | 「我的资料」：改自己的名字、改自己的密码            |
 | `/admin/users` | ADMIN  | 用户表的增、删、查                                  |
 
 前端的路由守卫只是**界面层的便利**，真正的权限判定始终在服务端：
-`/admin/*` 由 `PermissionGuard::all(ADMIN)` 拦住，`/staff/taxonomy/*` 由
-`PermissionGuard::any(STAFF | ADMIN)` 拦住，权限不足时拿到的是 403。
+`/admin/*` 由 `PermissionGuard::all(ADMIN)` 拦住，`/staff/taxonomy/*` 与
+`/staff/maintenance-logs/*` 由 `PermissionGuard::any(STAFF | ADMIN)` 拦住，
+权限不足时拿到的是 403。
 
 ## 物种分类前台
 
@@ -92,4 +97,8 @@ STAFF 或 ADMIN；路由见上面的「页面与权限」。
   表示「不改」，所以「清空描述」只能写空字符串。
 
 界面权限（有没有「新增 / 编辑 / 删除」按钮）由 `stores/auth.ts` 的 `canManageTaxonomy`
-决定，真正的权限判定始终在服务端（`/staff/taxonomy/*` 由 `PermissionGuard` 拦住）。
+决定，真正的权限判定始终在服务端（`/staff/taxonomy/*`、`/staff/maintenance-logs/*`
+由 `PermissionGuard` 拦住）。
+
+维护日志（`MaintenanceLogsView`）是同一套模式：读接口公开、写接口在 `/staff` 下，
+「修订说明 / 物种附录」用 `white-space: pre-wrap` 原样保留换行。

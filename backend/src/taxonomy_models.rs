@@ -429,7 +429,9 @@ pub struct RecordQuery {
 // --- 校验辅助 ---
 
 /// 把「缺字段 / 显式 null / 有值」三态区分开。见 `UpdateTaxonDto` 的说明。
-fn deserialize_some<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+///
+/// 维护日志的 `UpdateMaintenanceLogDto` 也用同一套三态语义，所以是 `pub(crate)`。
+pub(crate) fn deserialize_some<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     T: Deserialize<'de>,
     D: serde::Deserializer<'de>,

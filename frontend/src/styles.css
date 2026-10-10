@@ -162,7 +162,8 @@ a {
 }
 
 input,
-select {
+select,
+textarea {
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -171,8 +172,13 @@ select {
   font: inherit;
 }
 
+textarea {
+  resize: vertical;
+}
+
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
   border-color: var(--accent);
@@ -538,6 +544,57 @@ button.name-link:hover:not(:disabled) {
   margin-top: 6px;
   color: var(--muted);
   font-size: 13px;
+}
+
+/* --- 维护日志 --- */
+
+/* 「修订说明 / 物种附录」是原表里的多行文本，原样换行显示 */
+.pre-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.log-item {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.log-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-summary {
+  margin: 0;
+}
+
+.log-appendix {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 13px;
+}
+
+.log-appendix > :last-child {
+  margin: 4px 0 0;
 }
 
 /* --- 分类树 --- */

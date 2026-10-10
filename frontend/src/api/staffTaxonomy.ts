@@ -14,7 +14,7 @@ export interface CreateTaxonPayload {
 }
 
 /// 三态：字段缺失 = 保持不变，`null` = 置为 NULL（移到根 / 清空中文名），
-/// 有值 = 改成新值。见 docs/物种分类后台.md §2.2。
+/// 有值 = 改成新值。
 ///
 /// `rank` 不可改 —— 改阶元等于移动整棵子树，语义上应该新建节点。
 export interface UpdateTaxonPayload {

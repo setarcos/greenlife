@@ -4,7 +4,7 @@ import { errorMessage } from '../api/http'
 import { getTaxon, listTaxa } from '../api/taxonomy'
 import { RANKS, rankDepth, rankLabel, taxonLabel, type Taxon, type TaxonomyRank } from '../taxonomy'
 
-/// 逐级下拉框选分类节点（docs/物种分类后台.md §2.1）：
+/// 逐级下拉框选分类节点：
 /// 门 → 纲 → 目 → 科 → 属 → 种，每一级的候选是「上一级已选节点的直接子节点」。
 ///
 /// 后端允许跳级（属可以直接挂在纲下），所以某一级的下拉框可能是空的，

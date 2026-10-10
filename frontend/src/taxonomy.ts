@@ -34,7 +34,7 @@ export function rankDepth(rank: TaxonomyRank): number {
   return RANKS.indexOf(rank) + 1
 }
 
-/// 父级必须严格高于子级，允许跳级（见 docs/物种分类后台.md §1.2）。
+/// 父级必须严格高于子级，允许跳级。
 export function isStrictlyHigher(parent: TaxonomyRank, child: TaxonomyRank): boolean {
   return rankDepth(parent) < rankDepth(child)
 }

@@ -7,6 +7,21 @@ pub mod sql_types {
 }
 
 diesel::table! {
+    maintenance_logs (id) {
+        id -> Uuid,
+        list_id -> Nullable<Uuid>,
+        #[max_length = 50]
+        entry_date -> Nullable<Varchar>,
+        #[max_length = 200]
+        author -> Nullable<Varchar>,
+        summary -> Text,
+        species_appendix -> Nullable<Text>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     species_lists (id) {
         id -> Uuid,
         #[max_length = 100]
@@ -68,7 +83,14 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(maintenance_logs -> species_lists (list_id));
 diesel::joinable!(species_records -> species_lists (list_id));
 diesel::joinable!(species_records -> taxa (taxon_id));
 
-diesel::allow_tables_to_appear_in_same_query!(species_lists, species_records, taxa, users,);
+diesel::allow_tables_to_appear_in_same_query!(
+    maintenance_logs,
+    species_lists,
+    species_records,
+    taxa,
+    users,
+);
