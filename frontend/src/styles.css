@@ -320,6 +320,23 @@ button.link:hover:not(:disabled) {
   font-size: 12px;
 }
 
+/* 备注列：文字部分照旧省略号截断，iNaturalist tag 完整显示不被截掉 */
+.note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+}
+
+.note .clip {
+  min-width: 0;
+  max-width: none;
+}
+
+.note .tag {
+  flex: none;
+}
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
@@ -355,6 +372,97 @@ button.link:hover:not(:disabled) {
 
 .modal .actions {
   margin-top: 16px;
+}
+
+/* --- 物种卡片（点表格里的物种名打开）--- */
+
+/* 表格里的学名 / 中文名：看起来像文本，hover 才表现出可点击 */
+button.name-link {
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+button.name-link:hover:not(:disabled) {
+  color: var(--accent);
+  filter: none;
+}
+
+/* 卡片里备注完整显示：长文本和长 URL 都换行，不截断 */
+.note-full {
+  overflow-wrap: anywhere;
+}
+
+.note-full .tag {
+  margin: 0 4px;
+}
+
+.species-card {
+  max-width: 640px;
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.species-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.species-head h2 {
+  margin: 0 0 4px;
+}
+
+.species-sci {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.species-card h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.rank-list,
+.info-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.info-list {
+  margin-bottom: 0;
+}
+
+.rank-row,
+.info-row {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.info-row {
+  grid-template-columns: 56px 1fr;
+}
+
+.rank-name,
+.info-row > :last-child {
+  overflow-wrap: anywhere;
+}
+
+.rank-tag {
+  justify-self: start;
 }
 
 /* --- 物种名录 / 检索 --- */

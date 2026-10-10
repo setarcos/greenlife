@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { SpeciesRecord } from '../taxonomy'
+import NoteText from './NoteText.vue'
+import SpeciesCard from './SpeciesCard.vue'
 
 /// 名录记录的只读表格，名录页和物种检索页共用。
 /// 操作列的按钮由调用方通过 `actions` 插槽提供（检索页不传就没有这一列）。
+/// 学名 / 中文名可点击，打开 SpeciesCard 看完整物种信息。
 defineProps<{
   records: SpeciesRecord[]
   loading?: boolean
@@ -14,6 +18,12 @@ defineSlots<{
   actions?: (props: { record: SpeciesRecord }) => unknown
   empty?: () => unknown
 }>()
+
+const card = ref<InstanceType<typeof SpeciesCard> | null>(null)
+
+function openCard(record: SpeciesRecord): void {
+  card.value?.open(record)
+}
 </script>
 
 <template>
@@ -36,8 +46,22 @@ defineSlots<{
       <tbody>
         <tr v-for="record in records" :key="record.id">
           <!-- 学名 / 中文名完整显示不换行；备注 / 来源不换行，超出部分省略号 + hover 显示全文 -->
-          <td class="nowrap">{{ record.scientific_name }}</td>
-          <td class="nowrap">{{ record.chinese_name ?? '—' }}</td>
+          <td class="nowrap">
+            <button class="name-link" type="button" @click="openCard(record)">
+              {{ record.scientific_name }}
+            </button>
+          </td>
+          <td class="nowrap">
+            <button
+              v-if="record.chinese_name !== null"
+              class="name-link"
+              type="button"
+              @click="openCard(record)"
+            >
+              {{ record.chinese_name }}
+            </button>
+            <span v-else class="muted">—</span>
+          </td>
           <td v-if="listName" class="muted">{{ listName(record.list_id) }}</td>
           <td class="muted">
             <span class="clip" :title="record.distribution ?? undefined">
@@ -45,7 +69,7 @@ defineSlots<{
             </span>
           </td>
           <td class="muted">
-            <span class="clip" :title="record.note ?? undefined">{{ record.note ?? '—' }}</span>
+            <NoteText :note="record.note" clip />
           </td>
           <td class="muted">
             <span class="clip" :title="record.source ?? undefined">
@@ -65,4 +89,6 @@ defineSlots<{
       </tbody>
     </table>
   </div>
+
+  <SpeciesCard ref="card" :list-name="listName" />
 </template>
