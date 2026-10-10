@@ -11,9 +11,9 @@ export type Role = '' | 'ADMIN' | 'STAFF' | 'ADMIN | STAFF'
 
 export const ROLE_OPTIONS: ReadonlyArray<{ value: Role; label: string }> = [
   { value: '', label: '无权限' },
-  { value: 'STAFF', label: '员工' },
+  { value: 'STAFF', label: '会员' },
   { value: 'ADMIN', label: '管理员' },
-  { value: 'ADMIN | STAFF', label: '管理员 + 员工' },
+  { value: 'ADMIN | STAFF', label: '管理员 + 会员' },
 ]
 
 export function roleLabel(role: Role): string {

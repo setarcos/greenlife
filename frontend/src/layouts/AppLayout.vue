@@ -17,7 +17,7 @@ async function logout(): Promise<void> {
 
 <template>
   <header class="app-header">
-    <span class="brand">Greenlife</span>
+    <span class="brand">PKU Greenlife</span>
     <nav class="nav">
       <RouterLink to="/">物种名录</RouterLink>
       <RouterLink to="/tree">分类树</RouterLink>
