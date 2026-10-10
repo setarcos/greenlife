@@ -230,7 +230,9 @@ fn build_node(
 async fn list_lists(pool: web::Data<DbPool>) -> Result<HttpResponse, ServiceError> {
     let items = blocking_db(pool, |conn| {
         species_lists::table
-            .order(species_lists::name.asc())
+            // 领域顺序由 position 决定（脊椎 > 无脊椎 > 高等植物 > 大型真菌，
+            // 见迁移 2026-10-10-075917）；新名录默认 100，按名字排在后面。
+            .order((species_lists::position.asc(), species_lists::name.asc()))
             .select(SpeciesList::as_select())
             .load::<SpeciesList>(conn)
             .map_err(ServiceError::from)
@@ -518,6 +520,7 @@ async fn create_list(
         id: Uuid::new_v4(),
         name: dto.name,
         description: dto.description,
+        position: dto.position.unwrap_or(DEFAULT_LIST_POSITION),
     };
 
     let created = blocking_db(pool, move |conn| {
@@ -573,6 +576,7 @@ async fn update_list(
 
         let name = dto.name.unwrap_or(current.name);
         let description = dto.description.or(current.description);
+        let position = dto.position.unwrap_or(current.position);
 
         let taken = species_lists::table
             .filter(species_lists::name.eq(&name).and(species_lists::id.ne(list_id)))
@@ -589,6 +593,7 @@ async fn update_list(
             .set((
                 species_lists::name.eq(&name),
                 species_lists::description.eq(&description),
+                species_lists::position.eq(position),
             ))
             .returning(SpeciesList::as_select())
             .get_result::<SpeciesList>(conn)

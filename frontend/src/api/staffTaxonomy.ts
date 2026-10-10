@@ -45,6 +45,8 @@ export async function deleteTaxon(taxonId: string): Promise<void> {
 export interface CreateListPayload {
   name: string
   description: string | null
+  /// 展示顺序，小的排前面；不传则后端用默认值 100。
+  position?: number
 }
 
 /// 后端的 `UpdateSpeciesListDto` 是普通 `Option`：字段缺失 / `null` 都表示
@@ -52,6 +54,7 @@ export interface CreateListPayload {
 export interface UpdateListPayload {
   name?: string
   description?: string
+  position?: number
 }
 
 /// POST /staff/taxonomy/lists

@@ -13,6 +13,7 @@ diesel::table! {
         name -> Varchar,
         description -> Nullable<Text>,
         created_at -> Timestamp,
+        position -> Int4,
     }
 }
 

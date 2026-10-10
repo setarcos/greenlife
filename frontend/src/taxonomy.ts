@@ -77,6 +77,8 @@ export interface SpeciesList {
   name: string
   description: string | null
   created_at: string
+  /// 展示顺序，小的排前面（后端 `GET /taxonomy/lists` 已按它排好）。
+  position: number
 }
 
 /// `GET /taxonomy/lists/{id}`：同样是平铺的 list 字段 + record_count。

@@ -51,7 +51,7 @@ src/
   与 `backend/src/main.rs` 的 scope 一一对应。新加接口时也只写在 `baseURL` 之后。
 - **`role` 是字符串，不是整数**：`""`（无权限）/ `"ADMIN"` / `"STAFF"` / `"ADMIN | STAFF"`。
   空权限的**返回值是空字符串**，所以下拉框里「无权限」的值是 `''`。
-  细节见 `types.ts` 和 `docs/用户鉴权注意事项.md` §3.2。
+  细节见 `types.ts`。
 - **改密码会让当前 token 立即失效**（后端把 `token_version` +1），
   `ProfileView` 因此在成功后会主动登出并回到登录页，带上 `?notice=password-changed`。
 - **图片、文案里的错误信息来自后端**：`{ "error": "..." }` 原样展示（见 `api/http.ts::errorMessage`）。

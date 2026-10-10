@@ -160,16 +160,32 @@ const listForm = reactive({
   id: null as string | null,
   name: '',
   description: '',
+  /// `<input type="number">` 上 Vue 会自动加 `.number` 修饰符：清空时是空串，
+  /// 填了就是 number（见 submitList 里的 `String(...)`）。
+  position: '' as string | number,
   submitting: false,
   error: '',
 })
 
-/// 挂在 `close` 上，「取消 / Esc / 点背景」都会重置。
+/// 与后端 `DEFAULT_LIST_POSITION`、迁移里的列默认值保持一致。
+const DEFAULT_LIST_POSITION = 100
+
+/// 清空表单。`openCreateList` / `openEditList` 都会先调它。
 function resetListForm(): void {
   listForm.id = null
   listForm.name = ''
   listForm.description = ''
+  listForm.position = ''
   listForm.error = ''
+}
+
+/// `<dialog>` 的 `close` 事件是**排队异步派发**的（HTML 规范），可能在弹窗已经被
+/// 重新打开之后才到达。那时候重置会把刚填好的表单清掉（连着点「编辑名录」就能看到），
+/// 所以只在弹窗真的关着时才重置。
+function onListDialogClosed(): void {
+  if (listDialog.value?.open !== true) {
+    resetListForm()
+  }
 }
 
 function openCreateList(): void {
@@ -190,6 +206,7 @@ function openEditList(): void {
   listForm.id = list.id
   listForm.name = list.name
   listForm.description = list.description ?? ''
+  listForm.position = String(list.position)
   if (listDialog.value !== null && !listDialog.value.open) {
     listDialog.value.showModal()
   }
@@ -207,6 +224,19 @@ async function submitList(): Promise<void> {
     return
   }
 
+  // 排序：留空走默认值；填了就必须是 ≥ 0 的整数（后端列是 INTEGER）。
+  // 注意 `position` 可能是 number（Vue 对 number 输入框自动加了 `.number`）。
+  const positionText = String(listForm.position).trim()
+  if (positionText !== '' && !/^\d+$/.test(positionText)) {
+    listForm.error = '排序必须是 0 或正整数'
+    return
+  }
+  if (Number(positionText) > 2147483647) {
+    listForm.error = '排序不能超过 2147483647'
+    return
+  }
+  const position = positionText === '' ? DEFAULT_LIST_POSITION : Number(positionText)
+
   listForm.submitting = true
   try {
     const name = listForm.name.trim()
@@ -216,12 +246,13 @@ async function submitList(): Promise<void> {
       const created = await createSpeciesList({
         name,
         description: description === '' ? null : description,
+        position,
       })
       closeListDialog()
       savedMessage.value = `已新增名录「${created.name}」`
       await loadLists(created.id)
     } else {
-      const updated = await updateSpeciesList(listForm.id, { name, description })
+      const updated = await updateSpeciesList(listForm.id, { name, description, position })
       closeListDialog()
       savedMessage.value = `已更新名录「${updated.name}」`
       await loadLists(updated.id)
@@ -499,7 +530,7 @@ async function confirmDeleteRecord(): Promise<void> {
   </div>
 
   <!-- 名录的增 / 改 -->
-  <dialog ref="listDialog" class="modal" @close="resetListForm" @click.self="closeListDialog">
+  <dialog ref="listDialog" class="modal" @close="onListDialogClosed" @click.self="closeListDialog">
     <form @submit.prevent="submitList">
       <h2>{{ listForm.id === null ? '新增名录' : '编辑名录' }}</h2>
       <p v-if="listForm.error" class="alert error">{{ listForm.error }}</p>
@@ -513,6 +544,12 @@ async function confirmDeleteRecord(): Promise<void> {
       <div class="field">
         <label for="list-description">描述</label>
         <input id="list-description" v-model="listForm.description" />
+      </div>
+
+      <div class="field">
+        <label for="list-position">排序</label>
+        <input id="list-position" v-model="listForm.position" type="number" min="0" step="1" />
+        <span class="hint">数字小的排前面，留空按 {{ DEFAULT_LIST_POSITION }}（排最后）</span>
       </div>
 
       <div class="actions">

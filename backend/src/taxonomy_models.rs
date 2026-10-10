@@ -239,6 +239,8 @@ pub struct SpeciesList {
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
+    /// 展示顺序，小的排前面（见 `list_lists`）。
+    pub position: i32,
 }
 
 #[derive(Insertable)]
@@ -247,17 +249,25 @@ pub struct NewSpeciesList {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
+    /// 展示顺序，小的排前面。
+    pub position: i32,
 }
+
+/// 新建名录时的默认顺序（与迁移 `2026-10-10-075917` 的列默认值一致）。
+pub const DEFAULT_LIST_POSITION: i32 = 100;
 
 #[derive(Deserialize, Debug)]
 pub struct CreateSpeciesListDto {
     pub name: String,
     pub description: Option<String>,
+    /// 缺省 / null 都表示「用默认值」。
+    pub position: Option<i32>,
 }
 
 impl CreateSpeciesListDto {
     pub fn validate(&self) -> Result<(), ServiceError> {
-        validate_name("name", &self.name, LIST_NAME_MAX_CHARS)
+        validate_name("name", &self.name, LIST_NAME_MAX_CHARS)?;
+        validate_position(&self.position)
     }
 }
 
@@ -265,6 +275,8 @@ impl CreateSpeciesListDto {
 pub struct UpdateSpeciesListDto {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// 缺省 / null 都表示「保持不变」（列是 NOT NULL，不存在清空）。
+    pub position: Option<i32>,
 }
 
 impl UpdateSpeciesListDto {
@@ -272,11 +284,11 @@ impl UpdateSpeciesListDto {
         if let Some(name) = &self.name {
             validate_name("name", name, LIST_NAME_MAX_CHARS)?;
         }
-        Ok(())
+        validate_position(&self.position)
     }
 
     pub fn is_empty(&self) -> bool {
-        self.name.is_none() && self.description.is_none()
+        self.name.is_none() && self.description.is_none() && self.position.is_none()
     }
 }
 
@@ -451,6 +463,16 @@ fn validate_opt_name(
     }
 }
 
+/// `position` 是 `species_lists.position`（INTEGER），只用非负值。
+fn validate_position(value: &Option<i32>) -> Result<(), ServiceError> {
+    match value {
+        Some(v) if *v < 0 => Err(ServiceError::ValidationError(
+            "position must not be negative".to_string(),
+        )),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,5 +562,35 @@ mod tests {
         assert_eq!(cleared.note, Some(None));
         assert_eq!(cleared.distribution, Some(Some("燕南园".to_string())));
         assert!(!cleared.is_empty());
+    }
+
+    #[test]
+    fn list_position_is_optional_but_never_negative() {
+        // 缺字段 / null：都表示「不变」（列是 NOT NULL，没有三态）
+        let absent: UpdateSpeciesListDto = serde_json::from_str("{}").unwrap();
+        assert!(absent.is_empty());
+        assert!(absent.validate().is_ok());
+
+        let null: UpdateSpeciesListDto = serde_json::from_str(r#"{"position":null}"#).unwrap();
+        assert_eq!(null.position, None);
+        assert!(null.is_empty());
+
+        let ok: UpdateSpeciesListDto = serde_json::from_str(r#"{"position":0}"#).unwrap();
+        assert_eq!(ok.position, Some(0));
+        assert!(!ok.is_empty());
+        assert!(ok.validate().is_ok());
+
+        let negative: UpdateSpeciesListDto = serde_json::from_str(r#"{"position":-1}"#).unwrap();
+        assert!(negative.validate().is_err());
+
+        // 新建时缺省 → 调用方用 DEFAULT_LIST_POSITION 兜底
+        let created: CreateSpeciesListDto =
+            serde_json::from_str(r#"{"name":"某名录"}"#).unwrap();
+        assert_eq!(created.position, None);
+        assert!(created.validate().is_ok());
+
+        let created_negative: CreateSpeciesListDto =
+            serde_json::from_str(r#"{"name":"某名录","position":-5}"#).unwrap();
+        assert!(created_negative.validate().is_err());
     }
 }
