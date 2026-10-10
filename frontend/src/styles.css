@@ -899,6 +899,51 @@ a.link-button.secondary:hover {
   gap: 6px;
 }
 
+/* 照片卡片里的「详情」：折叠时只留一行「时间 拍摄人 拍摄于地点」 */
+.photo-details summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.photo-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.photo-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-details-toggle {
+  flex: none;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.photo-details .when-open,
+.photo-details[open] .when-closed {
+  display: none;
+}
+
+.photo-details[open] .when-open {
+  display: inline;
+}
+
+.photo-details-body {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .photo-meta .actions {
   margin-top: 4px;
 }

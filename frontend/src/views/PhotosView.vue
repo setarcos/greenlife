@@ -52,6 +52,18 @@ function today(): string {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+/// 照片卡片折叠时的一行摘要：「时间 拍摄人 拍摄于地点」，没填的字段直接省略。
+function photoSummary(photo: SpeciesPhoto): string {
+  const parts = [photo.taken_at]
+  if (photo.photographer !== null && photo.photographer !== '') {
+    parts.push(photo.photographer)
+  }
+  if (photo.location !== null && photo.location !== '') {
+    parts.push(`拍摄于${photo.location}`)
+  }
+  return parts.join(' ')
+}
+
 // ==========================================================================
 // 列表
 // ==========================================================================
@@ -381,43 +393,44 @@ watch(lockedTaxonId, async () => {
               <img :src="photo.url" :alt="photo.note ?? '物种照片'" loading="lazy" />
             </a>
             <figcaption class="photo-meta">
-              <div class="photo-tags">
-                <span v-if="photo.is_important" class="tag">重要记录</span>
-                <span v-if="photo.rating !== null" class="tag">评分 {{ photo.rating }}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">拍摄</span>
-                <span>{{ photo.taken_at }}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">拍摄人</span>
-                <span>{{ photo.photographer ?? '—' }}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">上传者</span>
-                <span>{{ photo.uploader_username }}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">地点</span>
-                <span>{{ photo.location ?? '—' }}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">备注</span>
-                <NoteText :note="photo.note" />
-              </div>
-              <div class="info-row">
-                <span class="info-label">文件</span>
-                <span class="muted">
-                  {{ formatFileSize(photo.file_size) }}
-                  <template v-if="photo.original_filename"
-                    >· {{ photo.original_filename }}</template
-                  >
-                </span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">上传</span>
-                <span class="muted">{{ formatTimestamp(photo.created_at) }}</span>
-              </div>
+              <!-- 折叠时是一行摘要「时间 谁 拍摄于哪里」，点「详情」展开其余信息。 -->
+              <details class="photo-details">
+                <summary>
+                  <span class="photo-summary">{{ photoSummary(photo) }}</span>
+                  <span class="photo-details-toggle">
+                    <span class="when-closed">详情</span>
+                    <span class="when-open">收起</span>
+                  </span>
+                </summary>
+                <div class="photo-details-body">
+                  <div class="photo-tags">
+                    <span v-if="photo.is_important" class="tag">重要记录</span>
+                    <span v-if="photo.rating !== null" class="tag">评分 {{ photo.rating }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">上传者</span>
+                    <span>{{ photo.uploader_username }}</span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">备注</span>
+                    <NoteText :note="photo.note" />
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">文件</span>
+                    <span class="muted">
+                      {{ formatFileSize(photo.file_size) }}
+                      <template v-if="photo.original_filename"
+                        >· {{ photo.original_filename }}</template
+                      >
+                    </span>
+                  </div>
+                  <div class="info-row">
+                    <span class="info-label">上传</span>
+                    <span class="muted">{{ formatTimestamp(photo.created_at) }}</span>
+                  </div>
+                </div>
+              </details>
+
               <div v-if="canManage" class="actions">
                 <button class="secondary" type="button" @click="openEdit(photo)">编辑</button>
                 <button class="danger" type="button" @click="openDelete(photo)">删除</button>
