@@ -73,7 +73,13 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(db_pool.clone()))
             .app_data(web::Data::new(config.clone()))
-            .wrap(Logger::default())
+            // %a 是 TCP 对端地址，反代场景下永远是 nginx（127.0.0.1），所以额外打上
+            // X-Forwarded-For（nginx 必须配 `proxy_set_header X-Forwarded-For
+            // $proxy_add_x_forwarded_for;`，见 README）。配了 realip 时末尾那段就是真实
+            // 客户端 IP；请求没带这个头时显示 `-`。
+            .wrap(Logger::new(
+                "%a %{X-Forwarded-For}i \"%r\" %s %b \"%{Referer}i\" \"%{User-Agent}i\" %T",
+            ))
             .service(health)
             .service(
                 web::scope("/auth")
