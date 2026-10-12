@@ -45,10 +45,11 @@ a {
 
 .app-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 24px;
-  padding: 0 24px;
-  height: 56px;
+  gap: 8px 24px;
+  padding: 8px 24px;
+  min-height: 56px;
   background: var(--header);
   color: #fff;
 }
@@ -69,6 +70,7 @@ a {
   border-radius: 6px;
   color: #cbd5e1;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .nav a:hover {
@@ -98,6 +100,7 @@ a {
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .login-link:hover {
@@ -108,6 +111,29 @@ a {
   max-width: 960px;
   margin: 0 auto;
   padding: 24px;
+}
+
+/* 窄屏：品牌和账号占第一行，导航整体换到第二行，条目可继续换行 */
+@media (max-width: 640px) {
+  .app-header {
+    gap: 4px 12px;
+    padding: 8px 12px;
+  }
+
+  .app-header .brand {
+    flex: 1;
+  }
+
+  /* 账号整体换行，而不是把名字拆成多行 */
+  .account {
+    flex: none;
+  }
+
+  .nav {
+    order: 3;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
 }
 
 .stack {
@@ -508,13 +534,15 @@ button.name-link:hover:not(:disabled) {
 
 .search-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
 }
 
+/* flex-basis 给一个下限：空间不够时输入框整体换行，而不是被挤成一条缝 */
 .search-bar input {
-  flex: 1;
+  flex: 1 1 180px;
   min-width: 0;
 }
 
@@ -522,6 +550,18 @@ button.name-link:hover:not(:disabled) {
 .search-bar input.date {
   flex: none;
   width: 150px;
+}
+
+/* 窄屏：关键字独占一行，起止日期并排一行，按钮再一行 */
+@media (max-width: 640px) {
+  .search-bar input {
+    flex: 1 1 100%;
+  }
+
+  .search-bar input.date {
+    flex: 1 1 120px;
+    width: auto;
+  }
 }
 
 .search-form {
