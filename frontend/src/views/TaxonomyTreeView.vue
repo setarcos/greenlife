@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { getTaxon, getTree } from '../api/taxonomy'
 import { createTaxon, deleteTaxon, updateTaxon } from '../api/staffTaxonomy'
@@ -317,10 +318,18 @@ async function confirmDelete(): Promise<void> {
               新增子节点时阶元必须严格低于「{{ rankLabel(detail.rank) }}」，允许跳级。
             </p>
 
-            <div v-if="canManage" class="actions">
-              <button type="button" @click="openCreate(detail)">新增子节点</button>
-              <button class="secondary" type="button" @click="openEdit(detail)">编辑</button>
-              <button class="danger" type="button" @click="openDelete(detail)">删除</button>
+            <div class="actions">
+              <RouterLink
+                class="link-button secondary"
+                :to="{ name: 'species-search', query: { taxon: detail.id } }"
+              >
+                查看该分类下的物种
+              </RouterLink>
+              <template v-if="canManage">
+                <button type="button" @click="openCreate(detail)">新增子节点</button>
+                <button class="secondary" type="button" @click="openEdit(detail)">编辑</button>
+                <button class="danger" type="button" @click="openDelete(detail)">删除</button>
+              </template>
             </div>
           </template>
 

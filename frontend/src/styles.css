@@ -575,6 +575,11 @@ button.name-link:hover:not(:disabled) {
   grid-column: 1 / -1;
 }
 
+/* 类群选择（逐级下拉框）独占一行，排在其他条件下面 */
+.search-form .picker-field {
+  grid-column: 1 / -1;
+}
+
 .pager {
   display: flex;
   flex-wrap: wrap;
@@ -688,9 +693,10 @@ button.name-link:hover:not(:disabled) {
 
 /* --- 分类树 --- */
 
+/* 放不下两栏时（窄屏）详情自动排到分类树下面 */
 .tree-split {
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(280px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 20px;
   align-items: start;
 }

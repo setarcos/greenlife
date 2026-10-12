@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { listRecords, listSpeciesLists } from '../api/taxonomy'
 import ListPager from '../components/ListPager.vue'
@@ -10,11 +11,16 @@ import type { SpeciesList, SpeciesRecord } from '../taxonomy'
 
 const PAGE_SIZE = 50
 
+const route = useRoute()
+
 const lists = ref<SpeciesList[]>([])
 
 /// 筛选条件。空串 / null 都表示「不限」。
 const listId = ref('')
-const taxonId = ref<string | null>(null)
+/// 从分类树详情点进来时带着 `?taxon=<id>`，直接选中该类群。
+const taxonId = ref(
+  typeof route.query.taxon === 'string' && route.query.taxon !== '' ? route.query.taxon : null,
+)
 const descendants = ref(true)
 /// 输入框里的关键字和真正用于查询的关键字分开，避免边打字边发请求。
 const keyword = ref('')
@@ -119,7 +125,7 @@ async function goToPage(page: number): Promise<void> {
           <input id="search-keyword" v-model="keyword" placeholder="学名或中文名…" />
         </div>
 
-        <div class="field">
+        <div class="field picker-field">
           <label>类群（可选，逐级选；选到哪一级就按哪一级筛）</label>
           <TaxonPicker :key="pickerKey" v-model="taxonId" />
           <label class="checkbox">
@@ -142,7 +148,12 @@ async function goToPage(page: number): Promise<void> {
 
       <p v-if="error" class="alert error">{{ error }}</p>
 
-      <SpeciesRecordTable :records="records" :loading="loading" :list-name="listName">
+      <SpeciesRecordTable
+        :records="records"
+        :loading="loading"
+        :list-name="listName"
+        hide-list-column
+      >
         <template #empty>
           <span v-if="searched">没有符合条件的记录</span>
           <span v-else>还没有查询</span>

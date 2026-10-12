@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { SpeciesRecord } from '../taxonomy'
 import NoteText from './NoteText.vue'
 import SpeciesCard, { type SpeciesCardTarget } from './SpeciesCard.vue'
@@ -7,12 +7,16 @@ import SpeciesCard, { type SpeciesCardTarget } from './SpeciesCard.vue'
 /// 名录记录的只读表格，名录页和物种检索页共用。
 /// 操作列的按钮由调用方通过 `actions` 插槽提供（检索页不传就没有这一列）。
 /// 学名 / 中文名可点击，打开 SpeciesCard 看完整物种信息。
-defineProps<{
+const props = defineProps<{
   records: SpeciesRecord[]
   loading?: boolean
   /// 传了才显示「名录」列；检索结果是跨名录的，需要它。
   listName?: (listId: string) => string
+  /// 表格里不显示「名录」列（卡片里仍然显示）。
+  hideListColumn?: boolean
 }>()
+
+const showListColumn = computed(() => props.listName !== undefined && props.hideListColumn !== true)
 
 defineSlots<{
   actions?: (props: { record: SpeciesRecord }) => unknown
@@ -37,7 +41,7 @@ function openCard(record: SpeciesRecord): void {
         <tr>
           <th>学名</th>
           <th>中文名</th>
-          <th v-if="listName">名录</th>
+          <th v-if="showListColumn">名录</th>
           <th>分布</th>
           <th>备注</th>
           <th>来源</th>
@@ -64,7 +68,7 @@ function openCard(record: SpeciesRecord): void {
             </button>
             <span v-else class="muted">—</span>
           </td>
-          <td v-if="listName" class="muted">{{ listName(record.list_id) }}</td>
+          <td v-if="showListColumn" class="muted">{{ listName?.(record.list_id) }}</td>
           <td class="muted">
             <span class="clip" :title="record.distribution ?? undefined">
               {{ record.distribution ?? '—' }}
@@ -84,7 +88,7 @@ function openCard(record: SpeciesRecord): void {
           </td>
         </tr>
         <tr v-if="records.length === 0">
-          <td :colspan="6 + (listName ? 1 : 0) + ($slots.actions ? 1 : 0)" class="muted">
+          <td :colspan="6 + (showListColumn ? 1 : 0) + ($slots.actions ? 1 : 0)" class="muted">
             <slot name="empty">没有记录</slot>
           </td>
         </tr>
