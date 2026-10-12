@@ -11,6 +11,7 @@ mod models;
 mod permissions;
 mod photo_handlers;
 mod photo_models;
+mod rate_limit;
 mod schema;
 mod taxonomy_handlers;
 mod taxonomy_models;
@@ -52,9 +53,13 @@ async fn main() -> std::io::Result<()> {
     //
     // 必须在 HttpServer::new 之外构造：在闭包内构造会让每个 worker 持有独立的
     // 限流器，实际额度变成 worker 数 × burst_size。
+    //
+    // 用 RealIpKeyExtractor 而不是默认的 PeerIpKeyExtractor：后者只看 TCP 对端
+    // 地址，nginx 反代时永远是 127.0.0.1，限流会退化成全局限流。
     let login_governor = GovernorConfigBuilder::default()
         .burst_size(5)
         .seconds_per_request(2)
+        .key_extractor(rate_limit::RealIpKeyExtractor)
         .finish()
         .expect("login rate limit config is valid");
 
