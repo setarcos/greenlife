@@ -6,6 +6,8 @@
 /// 放在普通 `<script>` 块里是为了能导出：SpeciesRecordTable 要把卡片的动作按钮
 /// 透传给上层，插槽 prop 用的就是这个类型。
 export interface SpeciesCardTarget {
+  /// 这条记录自己的 id：点「编辑」时靠它把记录交回调用方。
+  id?: string
   taxon_id: string
   scientific_name: string
   chinese_name: string | null
@@ -31,9 +33,13 @@ import NoteText from './NoteText.vue'
 
 /// 物种信息卡片：点表格里的学名 / 中文名打开。
 /// 记录本身自带分布 / 备注 / 来源，分类阶元要从 `/taxonomy/taxa/{id}` 取祖先链。
-defineProps<{
+const props = defineProps<{
   /// 和 SpeciesRecordTable 同一个函数：传了才显示「名录」。
   listName?: (listId: string) => string
+  /// 这条记录的编辑入口：传了（且当前用户是 STAFF / ADMIN）才显示「编辑」。
+  /// 编的是记录本身 —— 各页面用自己已有的编辑框：名录记录回「物种名录」页、
+  /// 重要记录回「鸟类调查」页；没有编辑框的页面（物种检索）自己跳到有编辑框的页面。
+  onEditRecord?: (target: SpeciesCardTarget) => void
 }>()
 
 /// 「记录信息」里的一行。
@@ -55,7 +61,11 @@ const error = ref('')
 /// 这个物种已有的照片数：> 0 才显示「浏览照片」链接。
 const photoCount = ref(0)
 const auth = useAuthStore()
-const canUpload = computed(() => auth.isStaff)
+/// STAFF / ADMIN（与后端 `/staff/taxonomy`、`/staff/bird-records` 写接口同口径）：
+/// 能编辑记录、传照片。
+const canManage = computed(() => auth.isStaff)
+/// 「编辑」按钮：有权限、且调用方给了编辑入口才显示。
+const canEdit = computed(() => canManage.value && props.onEditRecord !== undefined)
 
 /// 分类树很小且基本不变，同一 taxa 的祖先链缓存下来，反复点开不再请求。
 const chainCache = new Map<string, Taxon[]>()
@@ -119,6 +129,16 @@ function close(): void {
   dialog.value?.close()
 }
 
+/// 「编辑」：先把卡片收掉（免得两层弹窗叠在一起），再把这条记录交回调用方。
+function editRecord(): void {
+  const target = record.value
+  if (target === null) {
+    return
+  }
+  close()
+  props.onEditRecord?.(target)
+}
+
 defineExpose({ open })
 </script>
 
@@ -136,7 +156,7 @@ defineExpose({ open })
         <div class="head-actions">
           <!-- 照片入口：任何登录的 STAFF / ADMIN 都能上传，游客只能看。 -->
           <RouterLink
-            v-if="canUpload"
+            v-if="canManage"
             class="link-button"
             :to="{ name: 'photos', query: { taxon: record.taxon_id, upload: '1' } }"
           >
@@ -149,6 +169,8 @@ defineExpose({ open })
           >
             浏览照片（{{ photoCount }}）
           </RouterLink>
+          <!-- 记录自身的编辑入口：编哪张表由调用方的编辑框决定，没给就不显示。 -->
+          <button v-if="canEdit" class="secondary" type="button" @click="editRecord">编辑</button>
           <!-- 调用方从这里加针对这条记录的动作按钮（例如「添加新重要记录」）。
                一起把 close 交出去，按钮自己决定什么时候收起卡片。 -->
           <slot name="actions" :record="record" :close="close" />

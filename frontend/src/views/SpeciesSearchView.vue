@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { listRecords, listSpeciesLists } from '../api/taxonomy'
 import ListPager from '../components/ListPager.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
+import type { SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import { clampOffset } from '../pagination'
 import type { SpeciesList, SpeciesRecord } from '../taxonomy'
 
 const PAGE_SIZE = 50
 
 const route = useRoute()
+const router = useRouter()
 
 const lists = ref<SpeciesList[]>([])
 
@@ -37,6 +39,14 @@ const searched = ref(false)
 
 function listName(id: string): string {
   return lists.value.find((list) => list.id === id)?.name ?? id
+}
+
+/// 卡片里的「编辑」：检索结果只读，跳到「物种名录」页去编这条记录。
+function editRecordFromCard(target: SpeciesCardTarget): void {
+  if (target.id === undefined) {
+    return
+  }
+  void router.push({ name: 'species-lists', query: { record: target.id } })
 }
 
 async function load(): Promise<void> {
@@ -153,6 +163,7 @@ async function goToPage(page: number): Promise<void> {
         :loading="loading"
         :list-name="listName"
         hide-list-column
+        :on-edit-record="editRecordFromCard"
       >
         <template #empty>
           <span v-if="searched">没有符合条件的记录</span>

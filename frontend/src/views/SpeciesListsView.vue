@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { errorMessage } from '../api/http'
-import { getSpeciesList, listRecords, listSpeciesLists } from '../api/taxonomy'
+import { getRecord, getSpeciesList, listRecords, listSpeciesLists } from '../api/taxonomy'
 import {
   createRecord,
   createSpeciesList,
@@ -13,6 +14,7 @@ import {
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ListPager from '../components/ListPager.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
+import type { SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
 import { useAuthStore } from '../stores/auth'
 import { clampOffset } from '../pagination'
@@ -26,6 +28,8 @@ import {
 } from '../validation'
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => auth.isStaff)
 
 const PAGE_SIZE = 50
@@ -138,7 +142,45 @@ async function loadLists(preferId?: string): Promise<void> {
   }
 }
 
-onMounted(() => loadLists())
+onMounted(async () => {
+  // 从「物种检索」/「鸟种清单」的卡片点「编辑」跳过来：`?record=<id>`。
+  // 先按 id 取记录（顺便知道它属于哪份名录），选中那份名录后弹出编辑框。
+  const record = await recordFromQuery()
+  await loadLists(record?.list_id)
+  if (record !== null) {
+    // 编辑框提交时用的名录是「当前选中的这一份」，对不上就不能开，
+    // 否则保存会把记录挪到另一份名录里。
+    if (selectedId.value === record.list_id) {
+      openEditRecord(record)
+    } else {
+      recordsError.value = '这条记录所属的名录已经不在了'
+    }
+    // query 用完就清掉，刷新页面不会再弹一次编辑框。
+    void router.replace({ query: {} })
+  }
+})
+
+/// `?record=<id>` 指向的那条记录；没带 / 取不到就返回 null。
+async function recordFromQuery(): Promise<SpeciesRecord | null> {
+  const recordId = route.query.record
+  if (typeof recordId !== 'string' || recordId === '') {
+    return null
+  }
+  try {
+    return await getRecord(recordId)
+  } catch (e) {
+    recordsError.value = errorMessage(e)
+    return null
+  }
+}
+
+/// 卡片里的「编辑」：记录就在当前这一页，直接把弹窗套上。
+function editRecordFromCard(target: SpeciesCardTarget): void {
+  const record = records.value.find((item) => item.id === target.id)
+  if (record !== undefined) {
+    openEditRecord(record)
+  }
+}
 
 async function search(): Promise<void> {
   appliedKeyword.value = keyword.value.trim()
@@ -511,7 +553,11 @@ async function confirmDeleteRecord(): Promise<void> {
 
       <p v-if="recordsError" class="alert error">{{ recordsError }}</p>
 
-      <SpeciesRecordTable :records="records" :loading="recordsLoading">
+      <SpeciesRecordTable
+        :records="records"
+        :loading="recordsLoading"
+        :on-edit-record="editRecordFromCard"
+      >
         <template v-if="canManage" #actions="{ record }">
           <button class="secondary" type="button" @click="openEditRecord(record)">编辑</button>
           <button class="danger" type="button" @click="openDeleteRecord(record)">删除</button>

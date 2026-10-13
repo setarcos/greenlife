@@ -14,6 +14,8 @@ const props = defineProps<{
   listName?: (listId: string) => string
   /// 表格里不显示「名录」列（卡片里仍然显示）。
   hideListColumn?: boolean
+  /// 卡片里「编辑」按钮的回调（透传给 SpeciesCard）；不传卡片上就没有这个按钮。
+  onEditRecord?: (target: SpeciesCardTarget) => void
 }>()
 
 const showListColumn = computed(() => props.listName !== undefined && props.hideListColumn !== true)
@@ -96,7 +98,7 @@ function openCard(record: SpeciesRecord): void {
     </table>
   </div>
 
-  <SpeciesCard ref="card" :list-name="listName">
+  <SpeciesCard ref="card" :list-name="listName" :on-edit-record="onEditRecord">
     <!-- 卡片标题栏的动作按钮由调用方决定，这里只做透传。 -->
     <template #actions="slotProps">
       <slot name="card-actions" v-bind="slotProps" />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   createBirdRecord,
   deleteBirdRecord,
@@ -12,7 +13,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import NoteText from '../components/NoteText.vue'
 import ListPager from '../components/ListPager.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
-import SpeciesCard from '../components/SpeciesCard.vue'
+import SpeciesCard, { type SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import { useAuthStore } from '../stores/auth'
 import { BIRD_CLASS_SCIENTIFIC_NAME, type BirdRecord } from '../birds'
 import { clampOffset } from '../pagination'
@@ -33,6 +34,7 @@ import {
 /// - 重要记录：`bird_records` 表，docx 导入 + STAFF 手工补录。
 /// - 鸟调记录：还没有表，先放一个空标签。
 const auth = useAuthStore()
+const router = useRouter()
 const canManage = computed(() => auth.isStaff)
 
 const TABS = [
@@ -247,6 +249,22 @@ function openCard(record: BirdRecord): void {
     { label: '来源', value: record.source },
     { label: '更新', value: formatTimestamp(record.updated_at) },
   ])
+}
+
+/// 「鸟种清单」卡片里的「编辑」：这些是名录记录，跳到「物种名录」页编。
+function editSpeciesRecordFromCard(target: SpeciesCardTarget): void {
+  if (target.id === undefined) {
+    return
+  }
+  void router.push({ name: 'species-lists', query: { record: target.id } })
+}
+
+/// 「重要记录」卡片里的「编辑」：记录就在当前这一页，直接把弹窗套上。
+function editBirdRecordFromCard(target: SpeciesCardTarget): void {
+  const record = records.value.find((item) => item.id === target.id)
+  if (record !== undefined) {
+    openEditRecord(record)
+  }
 }
 
 const dialog = ref<HTMLDialogElement | null>(null)
@@ -469,7 +487,11 @@ onMounted(async () => {
 
         <p v-if="speciesError" class="alert error">{{ speciesError }}</p>
 
-        <SpeciesRecordTable :records="speciesRecords" :loading="speciesLoading">
+        <SpeciesRecordTable
+          :records="speciesRecords"
+          :loading="speciesLoading"
+          :on-edit-record="editSpeciesRecordFromCard"
+        >
           <template #card-actions="{ record, close }">
             <button v-if="canManage" type="button" @click="openCreateRecordFor(record, close)">
               添加新重要记录
@@ -669,7 +691,7 @@ onMounted(async () => {
   />
 
   <!-- 点学名 / 中文名打开，与「物种名录」页共用 -->
-  <SpeciesCard ref="card">
+  <SpeciesCard ref="card" :on-edit-record="editBirdRecordFromCard">
     <template #actions="{ record, close }">
       <button v-if="canManage" type="button" @click="openCreateRecordFor(record, close)">
         添加新重要记录
