@@ -63,7 +63,7 @@ const photoCount = ref(0)
 const auth = useAuthStore()
 /// STAFF / ADMIN（与后端 `/staff/taxonomy`、`/staff/bird-records` 写接口同口径）：
 /// 能编辑记录、传照片。
-const canManage = computed(() => auth.isStaff)
+const canManage = computed(() => auth.canManage)
 /// 「编辑」按钮：有权限、且调用方给了编辑入口才显示。
 const canEdit = computed(() => canManage.value && props.onEditRecord !== undefined)
 

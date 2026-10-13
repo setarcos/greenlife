@@ -29,6 +29,12 @@ async function logout(): Promise<void> {
   auth.logout()
   await router.push({ name: 'login' })
 }
+
+/// 管理界面标签：有 STAFF/ADMIN 权限才显示，点一下在「浏览界面 / 管理界面」
+/// 之间切换。状态存在 auth store 里，切换页面不会丢。
+function toggleManageMode(): void {
+  auth.setManageMode(!auth.manageMode)
+}
 </script>
 
 <template>
@@ -41,7 +47,7 @@ async function logout(): Promise<void> {
       <RouterLink to="/birds">鸟类调查</RouterLink>
       <!-- 维护日志连读都要 STAFF/ADMIN，游客和无权限用户不显示入口 -->
       <RouterLink v-if="auth.isStaff" to="/logs">维护日志</RouterLink>
-      <RouterLink v-if="auth.user" to="/profile">我的资料</RouterLink>
+      <RouterLink v-if="auth.user" to="/profile">个人中心</RouterLink>
       <!-- 服务端对 /admin/* 另有 ADMIN 校验，这里只是不显示进不去的入口 -->
       <RouterLink v-if="auth.isAdmin" to="/admin/users">
         用户管理
@@ -54,6 +60,22 @@ async function logout(): Promise<void> {
       </RouterLink>
     </nav>
     <div v-if="auth.user" class="account">
+      <!-- 有权限的用户点这个标签在「浏览界面 / 管理界面」之间切换：
+           浏览界面（绿）下各页面的增删改按钮全部隐藏，管理界面（红）才显示。 -->
+      <button
+        v-if="auth.isStaff"
+        class="manage-switch"
+        :class="auth.manageMode ? 'managing' : 'browsing'"
+        type="button"
+        :title="
+          auth.manageMode
+            ? '当前是管理界面，点击切换回浏览界面（隐藏增删改按钮）'
+            : '当前是浏览界面，点击切换到管理界面（显示增删改按钮）'
+        "
+        @click="toggleManageMode"
+      >
+        {{ auth.manageMode ? '管理界面' : '浏览界面' }}
+      </button>
       <span>
         {{ auth.user.name }}
         <span class="muted">（{{ roleText }}）</span>

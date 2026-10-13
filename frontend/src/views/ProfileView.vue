@@ -23,7 +23,7 @@ import {
 const auth = useAuthStore()
 const router = useRouter()
 
-/// 注册信息里可以在「我的资料」里查看的几项。用户名与权限单独展示。
+/// 注册信息里可以在「个人中心」里查看的几项。用户名与权限单独展示。
 const profileFields = computed(() => [
   { label: '昵称', value: auth.user?.name ?? '' },
   { label: '真实姓名', value: auth.user?.real_name ?? '' },

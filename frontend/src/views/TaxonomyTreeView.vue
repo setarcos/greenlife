@@ -24,7 +24,7 @@ import { TAXON_NAME_MAX_CHARS, charCount, validateField } from '../validation'
 type TaxonRef = Pick<Taxon, 'id' | 'parent_id' | 'rank' | 'scientific_name' | 'chinese_name'>
 
 const auth = useAuthStore()
-const canManage = computed(() => auth.isStaff)
+const canManage = computed(() => auth.canManage)
 
 const tree = ref<TaxonNode[]>([])
 const treeLoading = ref(false)
