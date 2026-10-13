@@ -323,7 +323,7 @@ async function confirmDelete(): Promise<void> {
                 class="link-button secondary"
                 :to="{ name: 'species-search', query: { taxon: detail.id } }"
               >
-                查看该分类下的物种
+                查看物种
               </RouterLink>
               <template v-if="canManage">
                 <button type="button" @click="openCreate(detail)">新增子节点</button>
