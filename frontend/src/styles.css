@@ -580,9 +580,43 @@ button.name-link:hover:not(:disabled) {
   grid-column: 1 / -1;
 }
 
-/* 类群选择（逐级下拉框）独占一行，排在其他条件下面 */
-.search-form .picker-field {
+/* 类群选择收进「高级搜索」，独占一行且默认折叠，让检索页只看得到关键字 */
+.search-form .advanced-search {
   grid-column: 1 / -1;
+}
+
+.advanced-search > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+  user-select: none;
+}
+
+.advanced-search > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-search .advanced-toggle {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.advanced-search .when-open,
+.advanced-search[open] .when-closed {
+  display: none;
+}
+
+.advanced-search[open] .when-open {
+  display: inline;
+}
+
+.advanced-search-body {
+  padding-top: 12px;
 }
 
 .pager {

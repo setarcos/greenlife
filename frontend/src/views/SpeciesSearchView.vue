@@ -29,6 +29,12 @@ const keyword = ref('')
 const appliedKeyword = ref('')
 /// 重建 TaxonPicker 用（重置时清掉已选类群）。
 const pickerKey = ref(0)
+/// 「高级搜索」（类群选择）默认折叠；从分类树带 `?taxon=` 进来时自动展开。
+const advancedOpen = ref(taxonId.value !== null)
+
+function onAdvancedToggle(event: Event): void {
+  advancedOpen.value = (event.target as HTMLDetailsElement).open
+}
 
 const records = ref<SpeciesRecord[]>([])
 const loading = ref(false)
@@ -102,6 +108,7 @@ async function reset(): Promise<void> {
   appliedKeyword.value = ''
   offset.value = 0
   pickerKey.value += 1
+  advancedOpen.value = false
   await load()
 }
 
@@ -135,14 +142,24 @@ async function goToPage(page: number): Promise<void> {
           <input id="search-keyword" v-model="keyword" placeholder="学名或中文名…" />
         </div>
 
-        <div class="field picker-field">
-          <label>类群（可选，逐级选；选到哪一级就按哪一级筛）</label>
-          <TaxonPicker :key="pickerKey" v-model="taxonId" />
-          <label class="checkbox">
-            <input type="checkbox" v-model="descendants" :disabled="taxonId === null" />
-            包含下级类群
-          </label>
-        </div>
+        <details class="advanced-search" :open="advancedOpen" @toggle="onAdvancedToggle">
+          <summary>
+            <span>高级搜索：类群</span>
+            <span v-if="taxonId !== null" class="tag">已筛选</span>
+            <span class="advanced-toggle">
+              <span class="when-closed">展开</span>
+              <span class="when-open">收起</span>
+            </span>
+          </summary>
+          <div class="advanced-search-body">
+            <p class="hint">逐级选择，选到哪一级就按哪一级筛选；不选则不限类群。</p>
+            <TaxonPicker :key="pickerKey" v-model="taxonId" />
+            <label class="checkbox">
+              <input type="checkbox" v-model="descendants" :disabled="taxonId === null" />
+              包含下级类群
+            </label>
+          </div>
+        </details>
 
         <div class="actions">
           <button type="submit" :disabled="loading">{{ loading ? '查询中…' : '搜索' }}</button>
