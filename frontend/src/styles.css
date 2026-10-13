@@ -195,6 +195,86 @@ a {
   gap: 8px;
 }
 
+/* --- 个人中心 --- */
+
+/* 头部：头像 + 昵称/权限（重点，字号大）+ 操作按钮 */
+.profile-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border: 1px solid #bfe0cf;
+  border-radius: 50%;
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+
+.profile-identity {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profile-identity h2 {
+  font-size: 1.25rem;
+}
+
+.profile-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+
+/* 用户名 / 注册时间是次要信息，压到最小一号 */
+.profile-meta {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 资料字段：桌面两列，窄屏自动一列 */
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 20px;
+  margin: 16px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.profile-item {
+  min-width: 0;
+}
+
+.profile-item > dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.profile-item > dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
 /* --- 表单 --- */
 
 .field {

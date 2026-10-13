@@ -23,15 +23,18 @@ import {
 const auth = useAuthStore()
 const router = useRouter()
 
-/// 注册信息里可以在「个人中心」里查看的几项。用户名与权限单独展示。
+/// 注册信息里可以在「个人中心」里查看的几项。昵称、真实姓名、权限、用户名
+/// 是卡片头部的重点，这里只列剩下的资料。
 const profileFields = computed(() => [
-  { label: '昵称', value: auth.user?.name ?? '' },
-  { label: '真实姓名', value: auth.user?.real_name ?? '' },
   { label: '学号 / 工号', value: auth.user?.student_id ?? '' },
   { label: '单位', value: auth.user?.organization ?? '' },
   { label: '联系方式', value: auth.user?.contact ?? '' },
   { label: '微信号', value: auth.user?.wechat ?? '' },
 ])
+
+/// 头像占位：取昵称首字符。用 `[...name]` 而不是 `name[0]`，
+/// 否则 emoji 之类的代理对会被截成半个字符。
+const initial = computed(() => [...(auth.user?.name ?? '')][0] ?? '?')
 
 const profileForm = reactive({
   name: '',
@@ -172,37 +175,34 @@ async function submitPassword(): Promise<void> {
 <template>
   <div class="stack">
     <section v-if="auth.user" class="card">
-      <h2>账号信息</h2>
-      <div class="field">
-        <label>用户名</label>
-        <div>
-          <span class="mono">{{ auth.user.username }}</span>
-          <span class="muted">（用户名是登录标识，不能自己修改）</span>
+      <header class="profile-head">
+        <div class="avatar" aria-hidden="true">{{ initial }}</div>
+        <div class="profile-identity">
+          <h2>{{ auth.user.name }}</h2>
+          <p class="profile-sub">
+            <span>{{ auth.user.real_name || '未填写真实姓名' }}</span>
+            <span class="tag">{{ roleLabel(auth.user.role) }}</span>
+          </p>
+          <p class="profile-meta muted">
+            <span class="mono">{{ auth.user.username }}</span>
+            · 注册于 {{ formatTimestamp(auth.user.created_at) }}
+          </p>
         </div>
-      </div>
-      <div class="field">
-        <label>权限</label>
-        <div>
-          <span class="tag">{{ roleLabel(auth.user.role) }}</span>
+        <div class="profile-actions">
+          <button class="secondary" type="button" @click="openProfileDialog">修改注册信息</button>
+          <button class="secondary" type="button" @click="openPasswordDialog">修改密码</button>
         </div>
-      </div>
+      </header>
 
-      <div v-for="item in profileFields" :key="item.label" class="field">
-        <label>{{ item.label }}</label>
-        <div v-if="item.value">{{ item.value }}</div>
-        <div v-else class="muted">未填写</div>
-      </div>
-
-      <div class="field">
-        <label>注册时间</label>
-        <div>{{ formatTimestamp(auth.user.created_at) }}</div>
-      </div>
-
-      <div class="actions">
-        <button class="secondary" type="button" @click="openProfileDialog">修改注册信息</button>
-        <button class="secondary" type="button" @click="openPasswordDialog">修改密码</button>
-      </div>
       <p v-if="savedMessage" class="alert success">{{ savedMessage }}</p>
+
+      <dl class="profile-grid">
+        <div v-for="item in profileFields" :key="item.label" class="profile-item">
+          <dt>{{ item.label }}</dt>
+          <dd :class="{ muted: item.value === '' }">{{ item.value || '未填写' }}</dd>
+        </div>
+      </dl>
+      <p class="hint">用户名是登录标识，不能自行修改。</p>
     </section>
 
     <!--
