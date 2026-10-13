@@ -94,6 +94,28 @@ a {
   color: #9ca3af;
 }
 
+/* 顶栏的「浏览界面 / 管理界面」标签：点一下切换。绿=浏览，红=管理 */
+.manage-switch {
+  padding: 2px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.manage-switch:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.manage-switch.managing {
+  background: var(--danger-weak);
+  border-color: #f3c2bd;
+  color: var(--danger);
+}
+
 .login-link {
   padding: 6px 12px;
   border-radius: 6px;

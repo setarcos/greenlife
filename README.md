@@ -86,7 +86,7 @@ psql "$DATABASE_URL" -c "INSERT INTO users (id, name, username, password_hash, r
 已经拥有 ADMIN 的账号不会被降级）。用户管理菜单在有待审批账号时会显示红点。
 注册接口和登录接口共用同一套按 IP 限流——它同样要跑一次 cost=12 的 bcrypt。
 
-注册信息（除用户名和权限外）用户可以在「我的资料」里自行修改（`PATCH /me`，
+注册信息（除用户名和权限外）用户可以在「个人中心」里自行修改（`PATCH /me`，
 任何已登录用户均可调用）；管理员可在用户列表的「注册信息」里查看。
 
 ### 6. 构建与启动

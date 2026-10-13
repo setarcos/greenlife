@@ -340,7 +340,7 @@ async function submitEdit(): Promise<void> {
             <td class="muted">{{ formatTimestamp(user.created_at) }}</td>
             <td class="actions-cell">
               <!-- 后端拒绝管理员改自己的权限（400），所以自己那一行不给编辑入口；
-                   改自己的密码走「我的资料」 -->
+                   改自己的密码走「个人中心」 -->
               <button
                 v-if="user.id !== auth.user?.id"
                 class="secondary"

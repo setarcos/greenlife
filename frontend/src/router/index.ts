@@ -20,7 +20,7 @@ export const router = createRouter({
       component: AppLayout,
       // 物种浏览（名录 / 分类树 / 检索 / 鸟类调查）是公开的，和后端 /taxonomy、
       // /bird-records 读接口一致；「维护日志」连读都要 STAFF/ADMIN（无权限用户和
-      // 游客都进不去），「我的资料」要登录，用户管理要 ADMIN。
+      // 游客都进不去），「个人中心」要登录，用户管理要 ADMIN。
       children: [
         { path: '', name: 'species-lists', component: SpeciesListsView },
         { path: 'tree', name: 'taxonomy-tree', component: TaxonomyTreeView },
@@ -92,7 +92,7 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresStaff && !auth.isStaff) {
     return { name: 'species-lists' }
   }
-  // 非管理员直接访问 /admin/users 时退回「我的资料」。
+  // 非管理员直接访问 /admin/users 时退回「个人中心」。
   // 注意这只影响前端路由，/admin/* 的接口在服务端另有 ADMIN 校验。
   if (to.meta.requiresAdmin && !auth.isAdmin) {
     return { name: 'profile' }

@@ -30,7 +30,7 @@ import {
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-const canManage = computed(() => auth.isStaff)
+const canManage = computed(() => auth.canManage)
 
 const PAGE_SIZE = 50
 

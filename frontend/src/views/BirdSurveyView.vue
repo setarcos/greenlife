@@ -35,7 +35,7 @@ import {
 /// - 鸟调记录：还没有表，先放一个空标签。
 const auth = useAuthStore()
 const router = useRouter()
-const canManage = computed(() => auth.isStaff)
+const canManage = computed(() => auth.canManage)
 
 const TABS = [
   { key: 'species', label: '鸟种清单' },
