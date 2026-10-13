@@ -24,8 +24,9 @@ export function isAdmin(role: Role | undefined): boolean {
   return role !== undefined && role.includes('ADMIN')
 }
 
-/// 分类树 / 名录的写接口要求 STAFF 或 ADMIN（见 backend/src/main.rs 的 /staff 作用域）。
-export function canManageTaxonomy(role: Role | undefined): boolean {
+/// 有没有 STAFF 或 ADMIN 权限，即后端的 `/staff` 作用域。
+/// 分类树/名录/维护日志/照片的读写都挂在这下面。
+export function isStaff(role: Role | undefined): boolean {
   return isAdmin(role) || (role !== undefined && role.includes('STAFF'))
 }
 

@@ -17,7 +17,7 @@ import type { SpeciesList } from '../taxonomy'
 import { AUTHOR_MAX_CHARS, ENTRY_DATE_MAX_CHARS, charCount } from '../validation'
 
 const auth = useAuthStore()
-const canManage = computed(() => auth.canManageTaxonomy)
+const canManage = computed(() => auth.isStaff)
 
 const PAGE_SIZE = 50
 

@@ -1,8 +1,8 @@
 //! 维护日志的 HTTP 处理器。
 //!
-//! 读接口挂在无鉴权的 `/maintenance-logs` 下，写接口挂在
-//! `/staff/maintenance-logs`（STAFF 或 ADMIN）。所有数据库访问都走
-//! `blocking_db`，与 `taxonomy_handlers.rs` 一致。
+//! 读 + 写接口都挂在 `/staff/maintenance-logs`（STAFF 或 ADMIN）：这是唯一一个
+//! 连读都不公开的资源（无权限用户和游客都不能看），见 `main.rs`。所有数据库
+//! 访问都走 `blocking_db`，与 `taxonomy_handlers.rs` 一致。
 
 use crate::db::{blocking_db, DbConn, DbPool};
 use crate::errors::ServiceError;
@@ -16,7 +16,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 // ==========================================================================
-// 读接口（公开）
+// 读接口（STAFF / ADMIN）
 // ==========================================================================
 
 /// 扁平列出维护日志，可按名录过滤 / 按修订说明与修订人搜索。

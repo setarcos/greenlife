@@ -26,7 +26,7 @@ import {
 } from '../validation'
 
 const auth = useAuthStore()
-const canManage = computed(() => auth.canManageTaxonomy)
+const canManage = computed(() => auth.isStaff)
 
 const PAGE_SIZE = 50
 

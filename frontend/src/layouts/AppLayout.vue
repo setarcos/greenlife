@@ -39,7 +39,8 @@ async function logout(): Promise<void> {
       <RouterLink to="/tree">分类树</RouterLink>
       <RouterLink to="/search">物种检索</RouterLink>
       <RouterLink to="/birds">鸟类调查</RouterLink>
-      <RouterLink to="/logs">维护日志</RouterLink>
+      <!-- 维护日志连读都要 STAFF/ADMIN，游客和无权限用户不显示入口 -->
+      <RouterLink v-if="auth.isStaff" to="/logs">维护日志</RouterLink>
       <RouterLink v-if="auth.user" to="/profile">我的资料</RouterLink>
       <!-- 服务端对 /admin/* 另有 ADMIN 校验，这里只是不显示进不去的入口 -->
       <RouterLink v-if="auth.isAdmin" to="/admin/users">

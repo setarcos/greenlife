@@ -29,7 +29,7 @@ const PAGE_SIZE = 12
 
 const auth = useAuthStore()
 const route = useRoute()
-const canManage = computed(() => auth.canManageTaxonomy)
+const canManage = computed(() => auth.isStaff)
 
 /// 从物种卡片进来时锁定这个物种；否则可以在上传框里自己选。
 const lockedTaxonId = computed(() =>

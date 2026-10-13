@@ -139,9 +139,13 @@ async fn main() -> std::io::Result<()> {
                             .service(taxonomy_handlers::update_record)
                             .service(taxonomy_handlers::delete_record),
                     )
-                    // 维护日志的写接口，同样 STAFF / ADMIN 可维护。
+                    // 维护日志的读 + 写接口。这是唯一一个连读都要 STAFF / ADMIN 的
+                    // 资源（无权限用户和游客都看不到），所以读接口也放在这个 scope 里，
+                    // 不再提供公开的 /maintenance-logs 路由。
                     .service(
                         web::scope("/maintenance-logs")
+                            .service(maintenance_handlers::list_maintenance_logs)
+                            .service(maintenance_handlers::get_maintenance_log)
                             .service(maintenance_handlers::create_maintenance_log)
                             .service(maintenance_handlers::update_maintenance_log)
                             .service(maintenance_handlers::delete_maintenance_log),
@@ -176,12 +180,6 @@ async fn main() -> std::io::Result<()> {
                     .service(taxonomy_handlers::get_list)
                     .service(taxonomy_handlers::list_records)
                     .service(taxonomy_handlers::get_record),
-            )
-            // 维护日志的读接口：同样公开。
-            .service(
-                web::scope("/maintenance-logs")
-                    .service(maintenance_handlers::list_maintenance_logs)
-                    .service(maintenance_handlers::get_maintenance_log),
             )
             // 鸟类调查「重要记录」的读接口：同样公开。
             .service(

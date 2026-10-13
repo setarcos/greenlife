@@ -18,9 +18,9 @@ export const router = createRouter({
     {
       path: '/',
       component: AppLayout,
-      // 物种浏览（名录 / 分类树 / 检索 / 鸟类调查 / 维护日志）是公开的，和后端
-      // /taxonomy、/bird-records、/maintenance-logs 读接口一致；只有「我的资料」
-      // 和用户管理要登录。
+      // 物种浏览（名录 / 分类树 / 检索 / 鸟类调查）是公开的，和后端 /taxonomy、
+      // /bird-records 读接口一致；「维护日志」连读都要 STAFF/ADMIN（无权限用户和
+      // 游客都进不去），「我的资料」要登录，用户管理要 ADMIN。
       children: [
         { path: '', name: 'species-lists', component: SpeciesListsView },
         { path: 'tree', name: 'taxonomy-tree', component: TaxonomyTreeView },
@@ -28,7 +28,14 @@ export const router = createRouter({
         { path: 'birds', name: 'bird-survey', component: BirdSurveyView },
         // 物种照片：公开可读，从物种卡片进入（`?taxon=<id>`）。
         { path: 'photos', name: 'photos', component: PhotosView },
-        { path: 'logs', name: 'maintenance-logs', component: MaintenanceLogsView },
+        // 维护日志：唯一一个连读都要 STAFF/ADMIN 的页面，后端 /staff/maintenance-logs
+        // 同步加了这个限制。
+        {
+          path: 'logs',
+          name: 'maintenance-logs',
+          component: MaintenanceLogsView,
+          meta: { requiresAuth: true, requiresStaff: true },
+        },
         {
           path: 'profile',
           name: 'profile',
@@ -79,6 +86,11 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  // 需要 STAFF 的页面（维护日志）：游客已在上面被送去登录，无权限账号退回首页。
+  // 同样只是界面层便利，/staff/* 的接口在服务端另有 PermissionGuard。
+  if (to.meta.requiresStaff && !auth.isStaff) {
+    return { name: 'species-lists' }
   }
   // 非管理员直接访问 /admin/users 时退回「我的资料」。
   // 注意这只影响前端路由，/admin/* 的接口在服务端另有 ADMIN 校验。

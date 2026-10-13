@@ -2,8 +2,8 @@ import { http } from './http'
 import type { MaintenanceLog } from '../maintenanceLogs'
 import type { Paged } from '../pagination'
 
-/// 读接口挂在公开的 `/maintenance-logs` 下，写接口挂在 `/staff/maintenance-logs`
-/// （STAFF 或 ADMIN），见 backend/src/main.rs。
+/// 维护日志的读 + 写接口都挂在 `/staff/maintenance-logs`（STAFF 或 ADMIN）。
+/// 这是唯一一个连读都要权限的资源：无权限用户和游客都看不到，见 backend/src/main.rs。
 
 export interface MaintenanceLogQuery {
   listId?: string
@@ -13,11 +13,11 @@ export interface MaintenanceLogQuery {
   offset?: number
 }
 
-/// GET /maintenance-logs：分页响应带总数，供页码条用。
+/// GET /staff/maintenance-logs：分页响应带总数，供页码条用。
 export async function listMaintenanceLogs(
   query: MaintenanceLogQuery = {},
 ): Promise<Paged<MaintenanceLog>> {
-  const { data } = await http.get<Paged<MaintenanceLog>>('/maintenance-logs', {
+  const { data } = await http.get<Paged<MaintenanceLog>>('/staff/maintenance-logs', {
     params: {
       list_id: query.listId,
       q: query.q,
@@ -28,9 +28,9 @@ export async function listMaintenanceLogs(
   return data
 }
 
-/// GET /maintenance-logs/{id}
+/// GET /staff/maintenance-logs/{id}
 export async function getMaintenanceLog(logId: string): Promise<MaintenanceLog> {
-  const { data } = await http.get<MaintenanceLog>(`/maintenance-logs/${logId}`)
+  const { data } = await http.get<MaintenanceLog>(`/staff/maintenance-logs/${logId}`)
   return data
 }
 

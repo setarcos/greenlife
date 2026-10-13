@@ -55,7 +55,7 @@ const error = ref('')
 /// 这个物种已有的照片数：> 0 才显示「浏览照片」链接。
 const photoCount = ref(0)
 const auth = useAuthStore()
-const canUpload = computed(() => auth.canManageTaxonomy)
+const canUpload = computed(() => auth.isStaff)
 
 /// 分类树很小且基本不变，同一 taxa 的祖先链缓存下来，反复点开不再请求。
 const chainCache = new Map<string, Taxon[]>()

@@ -33,7 +33,7 @@ import {
 /// - 重要记录：`bird_records` 表，docx 导入 + STAFF 手工补录。
 /// - 鸟调记录：还没有表，先放一个空标签。
 const auth = useAuthStore()
-const canManage = computed(() => auth.canManageTaxonomy)
+const canManage = computed(() => auth.isStaff)
 
 const TABS = [
   { key: 'species', label: '鸟种清单' },

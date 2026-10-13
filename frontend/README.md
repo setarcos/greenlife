@@ -33,9 +33,9 @@ src/
 │   ├── users.ts      /admin/user/*、/admin/users（都要 ADMIN，含审批通过、改权限密码）
 │   ├── taxonomy.ts   /taxonomy/*（公开读：阶元 / 分类树 / 名录 / 记录）
 │   ├── staffTaxonomy.ts  /staff/taxonomy/*（STAFF 或 ADMIN 的增删改）
-│   ├── maintenanceLogs.ts  /maintenance-logs/*（公开读）与 /staff/maintenance-logs/*（写）
+│   ├── maintenanceLogs.ts  /staff/maintenance-logs/*（读 + 写，STAFF 或 ADMIN）
 │   └── birdRecords.ts  /bird-records/*（公开读）与 /staff/bird-records/*（写）
-├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / canManageTaxonomy 由 role 推导
+├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / isStaff 由 role 推导
 ├── stores/pendingUsers.ts  Pinia：待审批人数，供「用户管理」菜单的红点使用
 ├── router/         路由表 + 守卫（requiresAuth / requiresAdmin）
 ├── layouts/        AppLayout：顶栏 + 导航 + 登录态
@@ -85,7 +85,7 @@ src/
 | `/tree`        | 所有人 | 「分类树」：展开分类树、查看节点路径与子节点        |
 | `/search`      | 所有人 | 「物种检索」：按名录 / 类群 / 关键字查记录          |
 | `/birds`       | 所有人 | 「鸟类调查」：鸟种清单 / 重要记录 / 鸟调记录        |
-| `/logs`        | 所有人 | 「维护日志」：按名录浏览 / 搜索修订记录             |
+| `/logs`        | STAFF / ADMIN | 「维护日志」：按名录浏览 / 搜索修订记录（连读都要权限） |
 | `/profile`     | 已登录 | 「我的资料」：改自己的注册信息（昵称/真实姓名/学号/单位/联系方式/微信）、改自己的密码 |
 | `/admin/users` | ADMIN  | 待审批用户通过、用户增删查、改权限/密码、查看注册信息 |
 
@@ -110,12 +110,13 @@ STAFF 或 ADMIN；路由见上面的「页面与权限」。
   例外的陷阱是**名录的 `description`**：后端用的是普通 `Option`，`null` 也只
   表示「不改」，所以「清空描述」只能写空字符串。
 
-界面权限（有没有「新增 / 编辑 / 删除」按钮）由 `stores/auth.ts` 的 `canManageTaxonomy`
+界面权限（有没有「新增 / 编辑 / 删除」按钮）由 `stores/auth.ts` 的 `isStaff`
 决定，真正的权限判定始终在服务端（`/staff/taxonomy/*`、`/staff/maintenance-logs/*`
 由 `PermissionGuard` 拦住）。
 
-维护日志（`MaintenanceLogsView`）是同一套模式：读接口公开、写接口在 `/staff` 下，
-「修订说明 / 物种附录」用 `white-space: pre-wrap` 原样保留换行。
+维护日志（`MaintenanceLogsView`）是唯一一个**连读都要 STAFF / ADMIN** 的资源：
+游客和无权限用户既看不到菜单入口，直接访问 `/logs` 或 `/staff/maintenance-logs`
+也会被挡回。「修订说明 / 物种附录」用 `white-space: pre-wrap` 原样保留换行。
 
 ## 鸟类调查
 
@@ -133,7 +134,7 @@ STAFF 或 ADMIN；路由见上面的「页面与权限」。
   「2023年5月底」落在 5 月下旬、「2007年」整年都算。归一逻辑只在数据库函数
   `bird_observed_bounds` 里一份，导入 / 新建 / 修改共用。
   读接口公开，写接口在 `/staff/bird-records`，所以页面上的
-  「新增 / 编辑 / 删除」由 `canManageTaxonomy` 控制。新增 / 编辑的物种**只能选鸟纲**：
+  「新增 / 编辑 / 删除」由 `isStaff` 控制。新增 / 编辑的物种**只能选鸟纲**：
   不再逐级选门 / 纲 / 目 / 科，而是一个带筛选词的鸟种下拉框（候选和「鸟种清单」
   同一个来源）；学名与中文名随鸟种自动带出，不手填。
 - **鸟调记录**：还没有对应的表和接口，先是一个空标签。
