@@ -23,6 +23,21 @@ pub const PASSWORD_MAX_BYTES: usize = 72;
 /// 密码长度下限。这是一条新增的策略，如果不需要可以放宽。
 pub const PASSWORD_MIN_CHARS: usize = 8;
 
+/// 注册信息里的「真实姓名」，数据库里是 VARCHAR(50)。
+pub const REAL_NAME_MAX_CHARS: usize = 50;
+
+/// 「学号 / 工号」，数据库里是 VARCHAR(50)。
+pub const STUDENT_ID_MAX_CHARS: usize = 50;
+
+/// 「单位」，数据库里是 VARCHAR(200)。
+pub const ORGANIZATION_MAX_CHARS: usize = 200;
+
+/// 「联系方式」，数据库里是 VARCHAR(200)。
+pub const CONTACT_MAX_CHARS: usize = 200;
+
+/// 「微信号」，数据库里是 VARCHAR(100)。
+pub const WECHAT_MAX_CHARS: usize = 100;
+
 #[derive(Queryable, Selectable, Identifiable, Serialize, Debug, Clone)]
 #[diesel(table_name = users)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -38,6 +53,13 @@ pub struct User {
     /// 每次「使已签发 token 失效」的操作（目前是改密码）都会 +1。
     /// JWT 里带上签发时的值，middleware 每请求比对。
     pub token_version: i32,
+    // --- 注册信息（昵称就是上面的 name）---
+    // 都可空：迁移之前的老账号没有这些资料，管理员手动建号也不强制填。
+    pub real_name: Option<String>,
+    pub student_id: Option<String>,
+    pub organization: Option<String>,
+    pub contact: Option<String>,
+    pub wechat: Option<String>,
 }
 
 #[derive(Insertable, Deserialize)]
@@ -48,6 +70,11 @@ pub struct NewUser {
     pub username: String,
     pub password_hash: String,
     pub role: Permissions,
+    pub real_name: Option<String>,
+    pub student_id: Option<String>,
+    pub organization: Option<String>,
+    pub contact: Option<String>,
+    pub wechat: Option<String>,
 }
 
 /// 显式的响应 DTO。
@@ -62,6 +89,11 @@ pub struct UserResponse {
     pub username: String,
     pub role: Permissions,
     pub created_at: NaiveDateTime,
+    pub real_name: Option<String>,
+    pub student_id: Option<String>,
+    pub organization: Option<String>,
+    pub contact: Option<String>,
+    pub wechat: Option<String>,
 }
 
 impl From<&User> for UserResponse {
@@ -72,6 +104,11 @@ impl From<&User> for UserResponse {
             username: user.username.clone(),
             role: user.role,
             created_at: user.created_at,
+            real_name: user.real_name.clone(),
+            student_id: user.student_id.clone(),
+            organization: user.organization.clone(),
+            contact: user.contact.clone(),
+            wechat: user.wechat.clone(),
         }
     }
 }
@@ -100,6 +137,35 @@ impl RegisterUserDto {
     }
 }
 
+/// 登录页上的自助注册。
+///
+/// 必填：用户名、真实姓名、昵称（`name`）、密码。选填：学号/工号、单位、联系方式、微信号。
+/// `role` 刻意不在请求体里：自助注册得到的账号恒为无权限，权限只能由管理员审批时赋予。
+#[derive(Deserialize)]
+pub struct SignupRequestDto {
+    pub username: String,
+    pub real_name: String,
+    pub name: String,
+    pub password: String,
+    pub student_id: Option<String>,
+    pub organization: Option<String>,
+    pub contact: Option<String>,
+    pub wechat: Option<String>,
+}
+
+impl SignupRequestDto {
+    pub fn validate(&self) -> Result<(), ServiceError> {
+        validate_username(&self.username)?;
+        validate_real_name(&self.real_name)?;
+        validate_name(&self.name)?;
+        validate_password(&self.password)?;
+        validate_optional_length("student_id", &self.student_id, STUDENT_ID_MAX_CHARS)?;
+        validate_optional_length("organization", &self.organization, ORGANIZATION_MAX_CHARS)?;
+        validate_optional_length("contact", &self.contact, CONTACT_MAX_CHARS)?;
+        validate_optional_length("wechat", &self.wechat, WECHAT_MAX_CHARS)
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct UpdateUserRequestDto {
     pub name: Option<String>,
@@ -124,19 +190,32 @@ impl UpdateUserRequestDto {
 
 /// 用户自助修改自己的资料。
 ///
-/// 刻意只有 `name` 和 `password` 两个字段：`username` 是身份标识、`role` 是权限，
-/// 都不允许自助修改。它们不出现在这里，所以客户端即使传了也到不了 SQL
-/// （serde 默认忽略未知字段），提权在类型层面就不可达。
+/// `username` 是身份标识、`role` 是权限，都不允许自助修改。它们不出现在这里，
+/// 所以客户端即使传了也到不了 SQL（serde 默认忽略未知字段），提权在类型层面就不可达。
+///
+/// 除 `name` / `real_name` / `password` 外的选填字段用「空串 = 置空」的语义：
+/// 请求体里 `Option<String>` 区分不了「字段缺失」和 `null`，所以统一约定，
+/// 想知道「怎么置空」就看 `normalize_optional_text`。
 #[derive(Deserialize, Debug)]
 pub struct UpdateSelfRequestDto {
     pub name: Option<String>,
+    pub real_name: Option<String>,
     pub password: Option<String>,
+    pub student_id: Option<String>,
+    pub organization: Option<String>,
+    pub contact: Option<String>,
+    pub wechat: Option<String>,
 }
 
 impl UpdateSelfRequestDto {
     pub fn validate(&self) -> Result<(), ServiceError> {
         if let Some(name) = &self.name {
             validate_name(name)?;
+        }
+        // 真实姓名一旦提供了就不能是空串：它是必填的注册信息，
+        // 「清空真实姓名」不在自助修改的语义里。
+        if let Some(real_name) = &self.real_name {
+            validate_real_name(real_name)?;
         }
         // password 在这里可以完整校验：与 `UpdateUserRequestDto` 不同，
         // 自助修改没有「管理员代改」这层语义，空串只可能是客户端写错了。
@@ -149,7 +228,10 @@ impl UpdateSelfRequestDto {
             }
             validate_password(password)?;
         }
-        Ok(())
+        validate_optional_length("student_id", &self.student_id, STUDENT_ID_MAX_CHARS)?;
+        validate_optional_length("organization", &self.organization, ORGANIZATION_MAX_CHARS)?;
+        validate_optional_length("contact", &self.contact, CONTACT_MAX_CHARS)?;
+        validate_optional_length("wechat", &self.wechat, WECHAT_MAX_CHARS)
     }
 }
 
@@ -229,6 +311,56 @@ fn validate_password(password: &str) -> Result<(), ServiceError> {
     Ok(())
 }
 
+fn validate_real_name(real_name: &str) -> Result<(), ServiceError> {
+    if real_name.trim().is_empty() {
+        return Err(ServiceError::ValidationError(
+            "real_name must not be empty".to_string(),
+        ));
+    }
+    let chars = real_name.chars().count();
+    if chars > REAL_NAME_MAX_CHARS {
+        return Err(ServiceError::ValidationError(format!(
+            "real_name must be at most {REAL_NAME_MAX_CHARS} characters, got {chars}"
+        )));
+    }
+    Ok(())
+}
+
+/// 选填字段的长度校验：`None` 和空串都合法，只在超长时报错。
+fn validate_optional_length(
+    field: &str,
+    value: &Option<String>,
+    max_chars: usize,
+) -> Result<(), ServiceError> {
+    if let Some(value) = value {
+        let chars = value.chars().count();
+        if chars > max_chars {
+            return Err(ServiceError::ValidationError(format!(
+                "{field} must be at most {max_chars} characters, got {chars}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 选填文本归一：去掉首尾空白，空串当成「没填」存 NULL。
+///
+/// 注册和自助修改共用这一份实现，避免两处对「空」的判断不一致。
+pub fn normalize_optional_text(value: &Option<String>) -> Option<String> {
+    value
+        .as_ref()
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+}
+
+/// 把请求体里的选填文本转成 changeset 值：外层 `None` = 不修改，
+/// 内层 `None` = 置空（写 NULL），`Some` = 改成这个值。
+pub fn optional_text_changeset(value: &Option<String>) -> Option<Option<String>> {
+    // `Some("")` 也要变成「置空」，所以先记下「提供了字段」再归一。
+    value.as_ref().map(|_| normalize_optional_text(value))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +371,31 @@ mod tests {
             username: username.to_string(),
             password: password.to_string(),
             role: Permissions::STAFF,
+        }
+    }
+
+    fn self_update(name: Option<&str>, password: Option<&str>) -> UpdateSelfRequestDto {
+        UpdateSelfRequestDto {
+            name: name.map(str::to_string),
+            real_name: None,
+            password: password.map(str::to_string),
+            student_id: None,
+            organization: None,
+            contact: None,
+            wechat: None,
+        }
+    }
+
+    fn signup() -> SignupRequestDto {
+        SignupRequestDto {
+            username: "zhangsan".to_string(),
+            real_name: "张三".to_string(),
+            name: "小三".to_string(),
+            password: "correct-horse".to_string(),
+            student_id: None,
+            organization: None,
+            contact: None,
+            wechat: None,
         }
     }
 
@@ -283,36 +440,76 @@ mod tests {
 
     #[test]
     fn self_update_dto_only_validates_provided_fields() {
-        let empty = UpdateSelfRequestDto {
-            name: None,
-            password: None,
-        };
+        let empty = self_update(None, None);
         assert!(empty.validate().is_ok());
 
-        let ok = UpdateSelfRequestDto {
-            name: Some("张三".to_string()),
-            password: Some("correct-horse".to_string()),
-        };
+        let ok = self_update(Some("张三"), Some("correct-horse"));
         assert!(ok.validate().is_ok());
 
-        let too_long = UpdateSelfRequestDto {
-            name: Some("x".repeat(NAME_MAX_CHARS + 1)),
-            password: None,
-        };
-        assert!(too_long.validate().is_err());
-
         // 空串和过短的密码都必须被拒：不能让自助端点成为绕过密码策略的入口。
-        let empty_password = UpdateSelfRequestDto {
-            name: None,
-            password: Some(String::new()),
-        };
-        assert!(empty_password.validate().is_err());
+        assert!(self_update(None, Some("")).validate().is_err());
+        assert!(self_update(None, Some("short")).validate().is_err());
+    }
 
-        let short_password = UpdateSelfRequestDto {
-            name: None,
-            password: Some("short".to_string()),
-        };
-        assert!(short_password.validate().is_err());
+    #[test]
+    fn self_update_still_checks_name_and_real_name_length() {
+        let too_long_name = self_update(Some(&"x".repeat(NAME_MAX_CHARS + 1)), None);
+        assert!(too_long_name.validate().is_err());
+
+        let mut too_long_real_name = self_update(None, None);
+        too_long_real_name.real_name = Some("x".repeat(REAL_NAME_MAX_CHARS + 1));
+        assert!(too_long_real_name.validate().is_err());
+
+        // 真实姓名是必填注册信息，自助修改时提供了就不能是空串。
+        let mut blank_real_name = self_update(None, None);
+        blank_real_name.real_name = Some("   ".to_string());
+        assert!(blank_real_name.validate().is_err());
+    }
+
+    #[test]
+    fn signup_requires_real_name_and_respects_column_limits() {
+        assert!(signup().validate().is_ok());
+
+        let mut blank_real_name = signup();
+        blank_real_name.real_name = "  ".to_string();
+        assert!(blank_real_name.validate().is_err());
+
+        let mut long_real_name = signup();
+        long_real_name.real_name = "x".repeat(REAL_NAME_MAX_CHARS + 1);
+        assert!(long_real_name.validate().is_err());
+
+        let mut long_student_id = signup();
+        long_student_id.student_id = Some("x".repeat(STUDENT_ID_MAX_CHARS + 1));
+        assert!(long_student_id.validate().is_err());
+
+        let mut long_wechat = signup();
+        long_wechat.wechat = Some("x".repeat(WECHAT_MAX_CHARS + 1));
+        assert!(long_wechat.validate().is_err());
+
+        // 选填字段填空串是合法的（归一后存 NULL）。
+        let mut empty_optionals = signup();
+        empty_optionals.student_id = Some(String::new());
+        empty_optionals.organization = Some(String::new());
+        assert!(empty_optionals.validate().is_ok());
+    }
+
+    #[test]
+    fn optional_text_normalises_blank_to_none() {
+        assert_eq!(normalize_optional_text(&None), None);
+        assert_eq!(normalize_optional_text(&Some(String::new())), None);
+        assert_eq!(normalize_optional_text(&Some("   ".to_string())), None);
+        assert_eq!(
+            normalize_optional_text(&Some(" 张三 ".to_string())),
+            Some("张三".to_string())
+        );
+
+        // 外层 None = 不改，空串 = 置空（Some(None)）。
+        assert_eq!(optional_text_changeset(&None), None);
+        assert_eq!(optional_text_changeset(&Some(String::new())), Some(None));
+        assert_eq!(
+            optional_text_changeset(&Some("x".to_string())),
+            Some(Some("x".to_string()))
+        );
     }
 
     #[test]

@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { isForbidden } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import AppLayout from '../layouts/AppLayout.vue'
 import BirdSurveyView from '../views/BirdSurveyView.vue'
@@ -68,15 +67,13 @@ router.beforeEach(async (to) => {
   }
 
   // 已登录但还没有用户资料（刚刷新页面）。公开页面也要拉一次，否则顶栏
-  // 不会显示当前用户；失败（401/403）就当作游客继续浏览。
+  // 不会显示当前用户；失败（token 失效 / 账号已删除）就当作游客继续浏览。
+  // `GET /me` 只要求登录，无权限账号也能拉到，所以这里不会因为「权限不足」登出。
   if (auth.isAuthenticated && auth.user === null) {
     try {
       await auth.loadMe()
-    } catch (e) {
+    } catch {
       auth.logout()
-      if (isForbidden(e) && to.meta.requiresAuth) {
-        return { name: 'login', query: { notice: 'no-access' } }
-      }
     }
   }
 

@@ -5,19 +5,41 @@ import { errorMessage } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { formatTimestamp, roleLabel } from '../types'
 import {
+  CONTACT_MAX_CHARS,
   NAME_MAX_CHARS,
+  ORGANIZATION_MAX_CHARS,
   PASSWORD_MAX_BYTES,
   PASSWORD_MIN_CHARS,
+  REAL_NAME_MAX_CHARS,
+  STUDENT_ID_MAX_CHARS,
+  WECHAT_MAX_CHARS,
   charCount,
   validateName,
+  validateOptionalField,
   validatePassword,
+  validateRealName,
 } from '../validation'
 
 const auth = useAuthStore()
 const router = useRouter()
 
-const nameForm = reactive({
-  name: auth.user?.name ?? '',
+/// 注册信息里可以在「我的资料」里查看的几项。用户名与权限单独展示。
+const profileFields = computed(() => [
+  { label: '昵称', value: auth.user?.name ?? '' },
+  { label: '真实姓名', value: auth.user?.real_name ?? '' },
+  { label: '学号 / 工号', value: auth.user?.student_id ?? '' },
+  { label: '单位', value: auth.user?.organization ?? '' },
+  { label: '联系方式', value: auth.user?.contact ?? '' },
+  { label: '微信号', value: auth.user?.wechat ?? '' },
+])
+
+const profileForm = reactive({
+  name: '',
+  real_name: '',
+  student_id: '',
+  organization: '',
+  contact: '',
+  wechat: '',
   submitting: false,
   error: '',
 })
@@ -29,21 +51,27 @@ const passwordForm = reactive({
   error: '',
 })
 
-/// 改名成功后 modal 已经关掉了，提示需要有地方落 —— 回显在「账号信息」里。
+/// 保存成功后 modal 已经关掉了，提示需要有地方落 —— 回显在「账号信息」里。
 const savedMessage = ref('')
 
-const nameDialog = ref<HTMLDialogElement | null>(null)
+const profileDialog = ref<HTMLDialogElement | null>(null)
 const passwordDialog = ref<HTMLDialogElement | null>(null)
 
 /// JS 的 `.length` 数的是 UTF-16 码元，Rust 的 `chars().count()` 数的是字符，
 /// 用 charCount 才能和后端的 `NAME_MAX_CHARS` 对齐（否则一个 emoji 会算成 2 个字符）。
-const nameLength = computed(() => charCount(nameForm.name))
+const nameLength = computed(() => charCount(profileForm.name))
 
 /// 每次打开都回到当前值，丢掉上一次没提交的输入和旧错误。
 /// 挂在 dialog 的 `close` 事件上，所以「取消 / Esc / 点背景」三条关闭路径都会重置。
-function resetNameForm(): void {
-  nameForm.name = auth.user?.name ?? ''
-  nameForm.error = ''
+function resetProfileForm(): void {
+  const user = auth.user
+  profileForm.name = user?.name ?? ''
+  profileForm.real_name = user?.real_name ?? ''
+  profileForm.student_id = user?.student_id ?? ''
+  profileForm.organization = user?.organization ?? ''
+  profileForm.contact = user?.contact ?? ''
+  profileForm.wechat = user?.wechat ?? ''
+  profileForm.error = ''
 }
 
 function resetPasswordForm(): void {
@@ -52,12 +80,12 @@ function resetPasswordForm(): void {
   passwordForm.error = ''
 }
 
-function openNameDialog(): void {
+function openProfileDialog(): void {
   savedMessage.value = ''
-  resetNameForm()
+  resetProfileForm()
   // 已经打开时再 showModal() 会抛 InvalidStateError（比如按钮被连点两下）
-  if (nameDialog.value !== null && !nameDialog.value.open) {
-    nameDialog.value.showModal()
+  if (profileDialog.value !== null && !profileDialog.value.open) {
+    profileDialog.value.showModal()
   }
 }
 
@@ -69,33 +97,47 @@ function openPasswordDialog(): void {
   }
 }
 
-function closeNameDialog(): void {
-  nameDialog.value?.close()
+function closeProfileDialog(): void {
+  profileDialog.value?.close()
 }
 
 function closePasswordDialog(): void {
   passwordDialog.value?.close()
 }
 
-async function submitName(): Promise<void> {
-  nameForm.error = ''
+async function submitProfile(): Promise<void> {
+  profileForm.error = ''
 
-  const problem = validateName(nameForm.name)
+  const problem =
+    validateName(profileForm.name) ||
+    validateRealName(profileForm.real_name) ||
+    validateOptionalField('学号/工号', profileForm.student_id, STUDENT_ID_MAX_CHARS) ||
+    validateOptionalField('单位', profileForm.organization, ORGANIZATION_MAX_CHARS) ||
+    validateOptionalField('联系方式', profileForm.contact, CONTACT_MAX_CHARS) ||
+    validateOptionalField('微信号', profileForm.wechat, WECHAT_MAX_CHARS)
   if (problem !== '') {
-    nameForm.error = problem
+    profileForm.error = problem
     return
   }
 
-  nameForm.submitting = true
+  profileForm.submitting = true
   try {
-    // 后端只认它认识的字段：改名字不会动 token_version，当前登录态仍然有效。
-    await auth.updateProfile({ name: nameForm.name })
-    closeNameDialog()
-    savedMessage.value = '名字已更新'
+    // 选填字段传空串 = 清空（后端把它归一成 NULL），所以这里原样提交即可。
+    // 请求体里没有 username / role，也就改不到它们。
+    await auth.updateProfile({
+      name: profileForm.name,
+      real_name: profileForm.real_name,
+      student_id: profileForm.student_id,
+      organization: profileForm.organization,
+      contact: profileForm.contact,
+      wechat: profileForm.wechat,
+    })
+    closeProfileDialog()
+    savedMessage.value = '注册信息已更新'
   } catch (e) {
-    nameForm.error = errorMessage(e)
+    profileForm.error = errorMessage(e)
   } finally {
-    nameForm.submitting = false
+    profileForm.submitting = false
   }
 }
 
@@ -144,13 +186,20 @@ async function submitPassword(): Promise<void> {
           <span class="tag">{{ roleLabel(auth.user.role) }}</span>
         </div>
       </div>
+
+      <div v-for="item in profileFields" :key="item.label" class="field">
+        <label>{{ item.label }}</label>
+        <div v-if="item.value">{{ item.value }}</div>
+        <div v-else class="muted">未填写</div>
+      </div>
+
       <div class="field">
         <label>注册时间</label>
         <div>{{ formatTimestamp(auth.user.created_at) }}</div>
       </div>
 
       <div class="actions">
-        <button class="secondary" type="button" @click="openNameDialog">修改名字</button>
+        <button class="secondary" type="button" @click="openProfileDialog">修改注册信息</button>
         <button class="secondary" type="button" @click="openPasswordDialog">修改密码</button>
       </div>
       <p v-if="savedMessage" class="alert success">{{ savedMessage }}</p>
@@ -160,26 +209,79 @@ async function submitPassword(): Promise<void> {
       原生 <dialog> + showModal()：焦点陷阱、Esc 关闭、背景遮挡都是浏览器自带的，
       不用自己写键盘/焦点处理。`@close` 覆盖「取消 / Esc / 点背景」所有关闭路径。
     -->
-    <dialog ref="nameDialog" class="modal" @close="resetNameForm" @click.self="closeNameDialog">
-      <form @submit.prevent="submitName">
-        <h2>修改名字</h2>
-        <p v-if="nameForm.error" class="alert error">{{ nameForm.error }}</p>
+    <dialog
+      ref="profileDialog"
+      class="modal modal-wide"
+      @close="resetProfileForm"
+      @click.self="closeProfileDialog"
+    >
+      <form @submit.prevent="submitProfile">
+        <h2>修改注册信息</h2>
+        <p v-if="profileForm.error" class="alert error">{{ profileForm.error }}</p>
 
         <div class="field">
-          <label for="profile-name">名字</label>
-          <input id="profile-name" v-model="nameForm.name" :maxlength="NAME_MAX_CHARS" required />
+          <label for="profile-name">昵称</label>
+          <input
+            id="profile-name"
+            v-model="profileForm.name"
+            :maxlength="NAME_MAX_CHARS"
+            required
+          />
           <span class="hint">{{ nameLength }} / {{ NAME_MAX_CHARS }} 字符</span>
         </div>
 
+        <div class="field">
+          <label for="profile-real-name">真实姓名</label>
+          <input
+            id="profile-real-name"
+            v-model="profileForm.real_name"
+            :maxlength="REAL_NAME_MAX_CHARS"
+            required
+          />
+        </div>
+
+        <div class="field">
+          <label for="profile-student-id">学号 / 工号</label>
+          <input
+            id="profile-student-id"
+            v-model="profileForm.student_id"
+            :maxlength="STUDENT_ID_MAX_CHARS"
+          />
+        </div>
+
+        <div class="field">
+          <label for="profile-organization">单位</label>
+          <input
+            id="profile-organization"
+            v-model="profileForm.organization"
+            :maxlength="ORGANIZATION_MAX_CHARS"
+          />
+        </div>
+
+        <div class="field">
+          <label for="profile-contact">联系方式</label>
+          <input
+            id="profile-contact"
+            v-model="profileForm.contact"
+            :maxlength="CONTACT_MAX_CHARS"
+          />
+        </div>
+
+        <div class="field">
+          <label for="profile-wechat">微信号</label>
+          <input id="profile-wechat" v-model="profileForm.wechat" :maxlength="WECHAT_MAX_CHARS" />
+        </div>
+        <p class="hint">选填字段留空表示清除已填写的内容。</p>
+
         <div class="actions">
-          <button type="submit" :disabled="nameForm.submitting">
-            {{ nameForm.submitting ? '保存中…' : '保存名字' }}
+          <button type="submit" :disabled="profileForm.submitting">
+            {{ profileForm.submitting ? '保存中…' : '保存' }}
           </button>
           <button
             class="secondary"
             type="button"
-            :disabled="nameForm.submitting"
-            @click="closeNameDialog"
+            :disabled="profileForm.submitting"
+            @click="closeProfileDialog"
           >
             取消
           </button>

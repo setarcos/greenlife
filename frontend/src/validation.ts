@@ -7,6 +7,13 @@ export const USERNAME_MAX_CHARS = 50
 export const PASSWORD_MIN_CHARS = 8
 export const PASSWORD_MAX_BYTES = 72
 
+/// 注册信息里的选填字段，与 backend/src/models.rs 的常量对齐。
+export const REAL_NAME_MAX_CHARS = 50
+export const STUDENT_ID_MAX_CHARS = 50
+export const ORGANIZATION_MAX_CHARS = 200
+export const CONTACT_MAX_CHARS = 200
+export const WECHAT_MAX_CHARS = 100
+
 /// 与 backend/src/taxonomy_models.rs 顶部的常量对齐。
 export const TAXON_NAME_MAX_CHARS = 200 // 分类节点的 scientific_name / chinese_name
 export const LIST_NAME_MAX_CHARS = 100 // 名录名
@@ -60,6 +67,33 @@ export function validatePassword(password: string): string {
   }
   if (byteCount(password) > PASSWORD_MAX_BYTES) {
     return `密码不能超过 ${PASSWORD_MAX_BYTES} 字节（一个中文字算 3 字节）`
+  }
+  return ''
+}
+
+/// 注册时的真实姓名是必填项，不能为空。
+export function validateRealName(realName: string): string {
+  if (realName.trim() === '') {
+    return '真实姓名不能为空'
+  }
+  if (charCount(realName) > REAL_NAME_MAX_CHARS) {
+    return `真实姓名最多 ${REAL_NAME_MAX_CHARS} 个字符`
+  }
+  return ''
+}
+
+/// 注册信息里的选填字段：留空合法，只在超长时报错。
+export function validateOptionalField(field: string, value: string, maxChars: number): string {
+  if (charCount(value) > maxChars) {
+    return `${field}最多 ${maxChars} 个字符`
+  }
+  return ''
+}
+
+/// 两次输入的密码是否一致（前端才拿得到两个值，后端只收一个 password）。
+export function validatePasswordConfirm(password: string, confirm: string): string {
+  if (password !== confirm) {
+    return '两次输入的密码不一致'
   }
   return ''
 }

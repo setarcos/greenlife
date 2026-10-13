@@ -29,13 +29,14 @@ npm run format  # prettier 格式化（配置在 .prettierrc.json）
 src/
 ├── api/            axios 封装，按后端 scope 分文件
 │   ├── http.ts       baseURL='/api' + token 注入 + 401 自动登出（唯一一处定义前缀和鉴权头）
-│   ├── auth.ts       /auth/login、/staff/me（读自己 / 改自己）
-│   ├── users.ts      /admin/user/*、/admin/users（都要 ADMIN）
+│   ├── auth.ts       /auth/login、/auth/register、/me（读自己 / 改自己，任何已登录用户）
+│   ├── users.ts      /admin/user/*、/admin/users（都要 ADMIN，含审批通过、改权限密码）
 │   ├── taxonomy.ts   /taxonomy/*（公开读：阶元 / 分类树 / 名录 / 记录）
 │   ├── staffTaxonomy.ts  /staff/taxonomy/*（STAFF 或 ADMIN 的增删改）
 │   ├── maintenanceLogs.ts  /maintenance-logs/*（公开读）与 /staff/maintenance-logs/*（写）
 │   └── birdRecords.ts  /bird-records/*（公开读）与 /staff/bird-records/*（写）
 ├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / canManageTaxonomy 由 role 推导
+├── stores/pendingUsers.ts  Pinia：待审批人数，供「用户管理」菜单的红点使用
 ├── router/         路由表 + 守卫（requiresAuth / requiresAdmin）
 ├── layouts/        AppLayout：顶栏 + 导航 + 登录态
 ├── components/     TaxonPicker（逐级下拉框）、TaxonTreeNode、SpeciesRecordTable、ConfirmDialog、
@@ -63,11 +64,14 @@ src/
   与 `backend/src/main.rs` 的 scope 一一对应。新加接口时也只写在 `baseURL` 之后。
 - **`role` 是字符串，不是整数**：`""`（无权限）/ `"ADMIN"` / `"STAFF"` / `"ADMIN | STAFF"`。
   空权限的**返回值是空字符串**，所以下拉框里「无权限」的值是 `''`。
+  `""` 同时意味着「自助注册后、还没被授予 STAFF」（`types.ts::isPending`）：
+  这种账号能登录浏览、维护自己的资料，只是不能上传 / 修改物种数据。
   细节见 `types.ts`。
 - **改密码会让当前 token 立即失效**（后端把 `token_version` +1），
   `ProfileView` 因此在成功后会主动登出并回到登录页，带上 `?notice=password-changed`。
 - **图片、文案里的错误信息来自后端**：`{ "error": "..." }` 原样展示（见 `api/http.ts::errorMessage`）。
-- 长度限制（名字 10 字符、密码 8 字符 / 72 字节）在 `validation.ts` 里，
+- 长度限制（名字/昵称 10 字符、密码 8 字符 / 72 字节，注册信息里的真实姓名 50、
+  学号 50、单位 200、联系方式 200、微信 100）在 `validation.ts` 里，
   和 `backend/src/models.rs` 的常量手工对齐 —— **改后端时两边都要改**。
   分类树 / 名录的同类常量（学名 200、名录名 100、编号 50）也在那里，对齐
   `backend/src/taxonomy_models.rs`。
@@ -76,14 +80,14 @@ src/
 
 | 路由           | 谁能进 | 做什么                                              |
 | -------------- | ------ | --------------------------------------------------- |
-| `/login`       | 所有人 | 登录                                                |
+| `/login`       | 所有人 | 登录、自助注册（注册后为无权限账号，可正常使用，等管理员授予写权限） |
 | `/`            | 所有人 | 「物种名录」：选名录、浏览 / 搜索记录（读接口公开） |
 | `/tree`        | 所有人 | 「分类树」：展开分类树、查看节点路径与子节点        |
 | `/search`      | 所有人 | 「物种检索」：按名录 / 类群 / 关键字查记录          |
 | `/birds`       | 所有人 | 「鸟类调查」：鸟种清单 / 重要记录 / 鸟调记录        |
 | `/logs`        | 所有人 | 「维护日志」：按名录浏览 / 搜索修订记录             |
-| `/profile`     | 已登录 | 「我的资料」：改自己的名字、改自己的密码            |
-| `/admin/users` | ADMIN  | 用户表的增、删、查                                  |
+| `/profile`     | 已登录 | 「我的资料」：改自己的注册信息（昵称/真实姓名/学号/单位/联系方式/微信）、改自己的密码 |
+| `/admin/users` | ADMIN  | 待审批用户通过、用户增删查、改权限/密码、查看注册信息 |
 
 前端的路由守卫只是**界面层的便利**，真正的权限判定始终在服务端：
 `/admin/*` 由 `PermissionGuard::all(ADMIN)` 拦住，`/staff/taxonomy/*` 与

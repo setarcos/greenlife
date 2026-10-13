@@ -128,6 +128,16 @@ diesel::table! {
         role -> Int4,
         created_at -> Timestamp,
         token_version -> Int4,
+        #[max_length = 50]
+        real_name -> Nullable<Varchar>,
+        #[max_length = 50]
+        student_id -> Nullable<Varchar>,
+        #[max_length = 200]
+        organization -> Nullable<Varchar>,
+        #[max_length = 200]
+        contact -> Nullable<Varchar>,
+        #[max_length = 100]
+        wechat -> Nullable<Varchar>,
     }
 }
 

@@ -31,7 +31,7 @@ export function setToken(next: string | null): void {
 /// }
 /// ```
 ///
-/// 于是 `GET /api/staff/me` 到后端就成了 `GET /staff/me`（后端不认识 /api 前缀，
+/// 于是 `GET /api/me` 到后端就成了 `GET /me`（后端不认识 /api 前缀，
 /// 所以后端代码不用改）。开发环境由 vite 的 proxy 做同样的事（见 vite.config.ts）。
 ///
 /// 用 baseURL 而不是在每个调用点上写 `/api/...`：前缀只有这一个来源，

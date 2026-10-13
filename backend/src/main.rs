@@ -49,14 +49,17 @@ async fn main() -> std::io::Result<()> {
     let server_address =
         env::var("SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
 
-    // 登录限流：每个客户端 IP 允许 5 次突发，之后每 2 秒补充 1 次。
+    // 登录/注册限流：每个客户端 IP 允许 5 次突发，之后每 2 秒补充 1 次。
+    //
+    // 自助注册也走这套限流：它同样要跑一次 cost=12 的 bcrypt，不限流就是一个
+    // 现成的 CPU 耗尽入口（两者共用额度是有意的）。
     //
     // 必须在 HttpServer::new 之外构造：在闭包内构造会让每个 worker 持有独立的
     // 限流器，实际额度变成 worker 数 × burst_size。
     //
     // 用 RealIpKeyExtractor 而不是默认的 PeerIpKeyExtractor：后者只看 TCP 对端
     // 地址，nginx 反代时永远是 127.0.0.1，限流会退化成全局限流。
-    let login_governor = GovernorConfigBuilder::default()
+    let auth_governor = GovernorConfigBuilder::default()
         .burst_size(5)
         .seconds_per_request(2)
         .key_extractor(rate_limit::RealIpKeyExtractor)
@@ -83,8 +86,10 @@ async fn main() -> std::io::Result<()> {
             .service(health)
             .service(
                 web::scope("/auth")
-                    .wrap(Governor::new(&login_governor))
-                    .service(auth_handlers::login),
+                    .wrap(Governor::new(&auth_governor))
+                    .service(auth_handlers::login)
+                    // 登录页上的自助注册：无需认证，创建的账号恒为无权限（NONE）。
+                    .service(auth_handlers::register),
             )
             .service(
                 web::scope("/admin")
@@ -94,10 +99,24 @@ async fn main() -> std::io::Result<()> {
                     .wrap(middleware::PermissionGuard::all(Permissions::ADMIN))
                     .wrap(middleware::JwtAuth)
                     .service(user_handlers::register)
+                    .service(user_handlers::approve_user)
                     .service(user_handlers::get_user_by_id)
                     .service(user_handlers::update_user)
                     .service(user_handlers::delete_user)
                     .service(user_handlers::list_users),
+            )
+            // 自己的账号资料：任何已登录用户都能读写，包括无权限（NONE）账号
+            // —— 自助注册后就能保持登录、查看 / 修改自己的注册信息，
+            // 不必等管理员审批。上传、编辑物种数据等写接口仍在 /staff 下，
+            // 仍然要 STAFF 或 ADMIN。
+            //
+            // 路径是 /me 而不是 /staff/me：它不属于「员工」资源，
+            // 放在 /staff 作用域里会被 PermissionGuard 拦住。
+            .service(
+                web::scope("/me")
+                    .wrap(middleware::JwtAuth)
+                    .service(auth_handlers::get_me)
+                    .service(auth_handlers::update_me),
             )
             .service(
                 web::scope("/staff")
@@ -106,8 +125,6 @@ async fn main() -> std::io::Result<()> {
                         Permissions::STAFF | Permissions::ADMIN,
                     ))
                     .wrap(middleware::JwtAuth)
-                    .service(auth_handlers::get_me)
-                    .service(auth_handlers::update_me)
                     // 分类树 / 名录的写接口：STAFF 和 ADMIN 都能维护。
                     // 嵌套 scope 会继承父 scope 的中间件，所以不用重复 wrap。
                     .service(

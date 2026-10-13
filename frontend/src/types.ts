@@ -29,7 +29,7 @@ export function canManageTaxonomy(role: Role | undefined): boolean {
   return isAdmin(role) || (role !== undefined && role.includes('STAFF'))
 }
 
-/// `GET /staff/me`、`GET /admin/users` 等返回的用户对象。
+/// `GET /me`、`GET /admin/users` 等返回的用户对象。
 /// 后端刻意用独立的响应 DTO，不含 `password_hash` 和 `token_version`。
 export interface User {
   id: string
@@ -38,11 +38,24 @@ export interface User {
   role: Role
   /// chrono 的 NaiveDateTime，形如 "2026-10-08T20:00:00"（无时区信息）。
   created_at: string
+  /// 注册信息。选定项都是可空的：老账号、管理员手动建号都没有这些资料。
+  real_name: string | null
+  student_id: string | null
+  organization: string | null
+  contact: string | null
+  wechat: string | null
 }
 
 export interface AuthResponse {
   token: string
   user: User
+}
+
+/// 无权限账号：自助注册后、管理员还没授予 STAFF 权限的用户。
+/// 他们可以登录浏览、维护自己的资料，只是没有上传 / 修改物种数据的权限。
+/// 后端的 `Permissions::NONE` 序列化成空字符串，所以判据就是 `''`。
+export function isPending(role: Role): boolean {
+  return role === ''
 }
 
 /// 展示用：只把 ISO 的 "T" 换成空格，**不做时区换算**。

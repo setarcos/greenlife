@@ -37,7 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = await authApi.fetchMe()
   }
 
-  async function updateProfile(payload: { name?: string; password?: string }): Promise<User> {
+  async function updateProfile(payload: authApi.UpdateMePayload): Promise<User> {
     const updated = await authApi.updateMe(payload)
     user.value = updated
     return updated

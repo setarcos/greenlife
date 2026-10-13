@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { errorMessage } from '../api/http'
-import { createUser, deleteUser, listUsers } from '../api/users'
+import { approveUser, createUser, deleteUser, listUsers, updateUser } from '../api/users'
 import { useAuthStore } from '../stores/auth'
-import { ROLE_OPTIONS, formatTimestamp, roleLabel, type Role, type User } from '../types'
+import { usePendingUsersStore } from '../stores/pendingUsers'
+import { ROLE_OPTIONS, formatTimestamp, isPending, roleLabel, type Role, type User } from '../types'
 import {
   NAME_MAX_CHARS,
   USERNAME_MAX_CHARS,
@@ -13,21 +14,44 @@ import {
 } from '../validation'
 
 const auth = useAuthStore()
+const pendingUsers = usePendingUsersStore()
 
 const users = ref<User[]>([])
 const loading = ref(false)
 const listError = ref('')
+
+/// 无权限账号 = 自助注册后等待审批的用户。
+const pending = computed(() => users.value.filter((user) => isPending(user.role)))
 
 /// 新增成功后 modal 已经关掉了，提示回显在列表上方。
 const savedMessage = ref('')
 
 const createDialog = ref<HTMLDialogElement | null>(null)
 const deleteDialog = ref<HTMLDialogElement | null>(null)
+const detailDialog = ref<HTMLDialogElement | null>(null)
 
 /// 待删目标。删除是破坏性操作，先存下来，确认框里的文案和实际删的 id 都取自这里。
 const pendingDelete = ref<User | null>(null)
 const deleteError = ref('')
 const deleting = ref(false)
+
+/// 查看注册信息的目标。审批通过后列表会重新加载，这个副本仍然指向同一个人。
+const detailUser = ref<User | null>(null)
+
+/// 正在审批的用户 id（按钮转圈），以及审批失败的错误。
+const approvingId = ref('')
+const approveError = ref('')
+
+/// 编辑目标（改权限 / 改密码）。
+const editDialog = ref<HTMLDialogElement | null>(null)
+const editingUser = ref<User | null>(null)
+const editForm = reactive({
+  role: 'STAFF' as Role,
+  // 留空 = 不改密码。管理员代改密码只有一栏：不需要像注册那样两次确认。
+  password: '',
+  submitting: false,
+  error: '',
+})
 
 const form = reactive({
   name: '',
@@ -43,6 +67,8 @@ async function load(): Promise<void> {
   listError.value = ''
   try {
     users.value = await listUsers()
+    // 菜单红点的数字与这张列表同源，免得再请求一次。
+    pendingUsers.setCount(pending.value.length)
   } catch (e) {
     listError.value = errorMessage(e)
   } finally {
@@ -104,6 +130,22 @@ async function submit(): Promise<void> {
   }
 }
 
+/// 审批通过：后端给这个账号加上 STAFF 权限位。
+async function approve(user: User): Promise<void> {
+  savedMessage.value = ''
+  approveError.value = ''
+  approvingId.value = user.id
+  try {
+    await approveUser(user.id)
+    savedMessage.value = `已通过「${user.real_name || user.name}」（${user.username}）的注册，已授予会员权限`
+    await load()
+  } catch (e) {
+    approveError.value = errorMessage(e)
+  } finally {
+    approvingId.value = ''
+  }
+}
+
 /// 后端也会拒绝管理员删除自己（400），界面上已经把「我」那一行的按钮藏掉了。
 function openDeleteDialog(user: User): void {
   savedMessage.value = ''
@@ -146,10 +188,120 @@ async function confirmDelete(): Promise<void> {
     deleting.value = false
   }
 }
+
+function openDetailDialog(user: User): void {
+  detailUser.value = user
+  if (detailDialog.value !== null && !detailDialog.value.open) {
+    detailDialog.value.showModal()
+  }
+}
+
+function closeDetailDialog(): void {
+  detailDialog.value?.close()
+}
+
+function onDetailClosed(): void {
+  detailUser.value = null
+}
+
+/// 打开编辑弹窗。每次都用该用户当前的值重置，避免带上一次编辑的残留。
+function openEditDialog(user: User): void {
+  savedMessage.value = ''
+  editingUser.value = user
+  editForm.role = user.role
+  editForm.password = ''
+  editForm.error = ''
+  if (editDialog.value !== null && !editDialog.value.open) {
+    editDialog.value.showModal()
+  }
+}
+
+function closeEditDialog(): void {
+  editDialog.value?.close()
+}
+
+/// 挂在 dialog 的 `close` 事件上：取消 / Esc / 点背景都要把编辑目标清掉。
+function onEditClosed(): void {
+  editingUser.value = null
+  editForm.password = ''
+  editForm.error = ''
+}
+
+async function submitEdit(): Promise<void> {
+  const user = editingUser.value
+  if (user === null) {
+    return
+  }
+
+  editForm.error = ''
+
+  // 密码可以不填（不改）；填了就必须满足后端同一套策略。
+  if (editForm.password !== '') {
+    const problem = validatePassword(editForm.password)
+    if (problem !== '') {
+      editForm.error = problem
+      return
+    }
+  }
+
+  editForm.submitting = true
+  try {
+    await updateUser(user.id, {
+      role: editForm.role,
+      // 空串会被后端当成「提供了空密码」报 400，所以留空时干脆不带这个字段。
+      password: editForm.password === '' ? undefined : editForm.password,
+    })
+    closeEditDialog()
+    savedMessage.value = `已更新用户「${user.name}」（${user.username}）的权限/密码`
+    await load()
+  } catch (e) {
+    editForm.error = errorMessage(e)
+  } finally {
+    editForm.submitting = false
+  }
+}
 </script>
 
 <template>
   <div class="stack">
+    <!-- 无权限账号单独一块：管理员一眼能看到谁在等审批，通过按钮也在这里 -->
+    <section v-if="pending.length > 0" class="card">
+      <div class="card-head">
+        <h2>待审批用户</h2>
+        <span class="muted">共 {{ pending.length }} 人</span>
+      </div>
+
+      <p v-if="approveError" class="alert error">{{ approveError }}</p>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>昵称</th>
+            <th>真实姓名</th>
+            <th>用户名</th>
+            <th>注册时间</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="user in pending" :key="user.id">
+            <td>{{ user.name }}</td>
+            <td>{{ user.real_name || '—' }}</td>
+            <td class="mono">{{ user.username }}</td>
+            <td class="muted">{{ formatTimestamp(user.created_at) }}</td>
+            <td class="actions-cell">
+              <button type="button" :disabled="approvingId === user.id" @click="approve(user)">
+                {{ approvingId === user.id ? '处理中…' : '通过' }}
+              </button>
+              <button class="secondary" type="button" @click="openDetailDialog(user)">
+                注册信息
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <section class="card">
       <div class="card-head">
         <h2>用户列表</h2>
@@ -187,6 +339,19 @@ async function confirmDelete(): Promise<void> {
             </td>
             <td class="muted">{{ formatTimestamp(user.created_at) }}</td>
             <td class="actions-cell">
+              <!-- 后端拒绝管理员改自己的权限（400），所以自己那一行不给编辑入口；
+                   改自己的密码走「我的资料」 -->
+              <button
+                v-if="user.id !== auth.user?.id"
+                class="secondary"
+                type="button"
+                @click="openEditDialog(user)"
+              >
+                编辑
+              </button>
+              <button class="secondary" type="button" @click="openDetailDialog(user)">
+                注册信息
+              </button>
               <button
                 v-if="user.id !== auth.user?.id"
                 class="danger"
@@ -255,6 +420,104 @@ async function confirmDelete(): Promise<void> {
             type="button"
             :disabled="form.submitting"
             @click="closeCreateDialog"
+          >
+            取消
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog
+      ref="detailDialog"
+      class="modal modal-wide"
+      @close="onDetailClosed"
+      @click.self="closeDetailDialog"
+    >
+      <template v-if="detailUser">
+        <h2>注册信息</h2>
+        <div class="info-list">
+          <div class="info-row">
+            <span class="muted">用户名</span>
+            <span class="mono">{{ detailUser.username }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">昵称</span>
+            <span>{{ detailUser.name }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">真实姓名</span>
+            <span>{{ detailUser.real_name || '未填写' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">学号 / 工号</span>
+            <span>{{ detailUser.student_id || '未填写' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">单位</span>
+            <span>{{ detailUser.organization || '未填写' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">联系方式</span>
+            <span>{{ detailUser.contact || '未填写' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">微信号</span>
+            <span>{{ detailUser.wechat || '未填写' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">权限</span>
+            <span class="tag">{{ roleLabel(detailUser.role) }}</span>
+          </div>
+          <div class="info-row">
+            <span class="muted">注册时间</span>
+            <span>{{ formatTimestamp(detailUser.created_at) }}</span>
+          </div>
+        </div>
+      </template>
+
+      <div class="actions">
+        <button class="secondary" type="button" @click="closeDetailDialog">关闭</button>
+      </div>
+    </dialog>
+
+    <dialog ref="editDialog" class="modal" @close="onEditClosed" @click.self="closeEditDialog">
+      <form @submit.prevent="submitEdit">
+        <h2>编辑用户</h2>
+        <p v-if="editingUser" class="muted">
+          {{ editingUser.name }}（<span class="mono">{{ editingUser.username }}</span
+          >）
+        </p>
+        <p v-if="editForm.error" class="alert error">{{ editForm.error }}</p>
+
+        <div class="field">
+          <label for="edit-role">权限</label>
+          <select id="edit-role" v-model="editForm.role">
+            <option v-for="option in ROLE_OPTIONS" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="edit-password">新密码</label>
+          <input
+            id="edit-password"
+            v-model="editForm.password"
+            type="password"
+            autocomplete="new-password"
+          />
+          <span class="hint">留空表示不修改；修改后该用户需要重新登录</span>
+        </div>
+
+        <div class="actions">
+          <button type="submit" :disabled="editForm.submitting">
+            {{ editForm.submitting ? '保存中…' : '保存' }}
+          </button>
+          <button
+            class="secondary"
+            type="button"
+            :disabled="editForm.submitting"
+            @click="closeEditDialog"
           >
             取消
           </button>

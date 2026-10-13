@@ -402,6 +402,11 @@ button.link:hover:not(:disabled) {
   max-width: 560px;
 }
 
+/* 注册信息里的字段名比物种卡片的长（「学号 / 工号」），标签列要宽一点 */
+.modal-wide .info-row {
+  grid-template-columns: 84px 1fr;
+}
+
 .modal .actions {
   margin-top: 16px;
 }
@@ -853,6 +858,11 @@ button.name-link:hover:not(:disabled) {
   padding: 28px;
 }
 
+/* 注册表单字段多，窄卡片会滚很长 */
+.login-page .card.wide {
+  max-width: 460px;
+}
+
 .login-page h1 {
   margin-bottom: 4px;
   font-size: 1.25rem;
@@ -871,6 +881,42 @@ button.name-link:hover:not(:disabled) {
 .login-page button[type='submit'] {
   width: 100%;
   margin-top: 8px;
+}
+
+/* 「还没有账号？注册」一行：文字后面的按钮看起来像链接 */
+.login-page .switch {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.login-page .link-inline {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+.login-page .link-inline:hover:not(:disabled) {
+  filter: none;
+}
+
+/* 顶栏「用户管理」上的待审批红点 */
+.nav-dot {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  vertical-align: 1px;
 }
 
 /* --- 物种照片 --- */

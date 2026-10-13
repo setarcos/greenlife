@@ -58,6 +58,13 @@ async fn register(
             username,
             password_hash,
             role,
+            // 管理员建号时不收集注册信息，这五列先留空，留给用户自己在
+            // 「我的资料」里补填。
+            real_name: None,
+            student_id: None,
+            organization: None,
+            contact: None,
+            wechat: None,
         };
 
         diesel::insert_into(users::table)
@@ -73,6 +80,40 @@ async fn register(
     .await?;
 
     Ok(HttpResponse::Created().json(UserResponse::from(created)))
+}
+
+/// 审批通过自助注册的账号：授予 STAFF 权限。
+///
+/// 用按位或而不是直接覆盖成 `STAFF`：目标账号如果已经有 ADMIN，
+/// 不该因为点了一次「通过」被降级。对无权限账号来说结果就是 STAFF。
+#[post("/user/{user_id}/approve")]
+async fn approve_user(
+    pool: web::Data<DbPool>,
+    user_id_path: web::Path<Uuid>,
+) -> Result<HttpResponse, ServiceError> {
+    let user_id = user_id_path.into_inner();
+
+    let updated = blocking_db(pool, move |conn| {
+        // 「读当前 role → 按位或 → 写回」必须在同一事务里，
+        // 否则并发下会丢失另一个审批动作写入的位。
+        conn.transaction::<User, ServiceError, _>(|conn| {
+            let current_role = users::table
+                .find(user_id)
+                .select(users::role)
+                .first::<Permissions>(conn)
+                .optional()?
+                .ok_or_else(|| ServiceError::NotFound(format!("User {user_id} not found")))?;
+
+            diesel::update(users::table.find(user_id))
+                .set(users::role.eq(current_role | Permissions::STAFF))
+                .returning(User::as_select())
+                .get_result::<User>(conn)
+                .map_err(ServiceError::from)
+        })
+    })
+    .await?;
+
+    Ok(HttpResponse::Ok().json(UserResponse::from(updated)))
 }
 
 #[get("/user/{user_id}")]
