@@ -1,0 +1,43 @@
+name: CI Frontend
+
+# PR 门禁（前端）：格式 + lint 都过才允许合入。
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/ci-frontend.yml'
+  # 手动触发，方便在没有 PR 时先验证一遍 workflow 本身（不受 paths 限制）。
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # 卡死时的兜底，避免占着 runner 烧 6 小时。
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 与 deploy-frontend.yml 保持一致：同一份 lock 文件、同一个 node 版本，
+      # 免得本地/CI/部署三处的依赖树不一样。
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # package.json 里的 format 是 `prettier --write .`：它改写文件且永远返回 0，
+      # 拿来当门禁等于没检查，所以这里直接用 --check：有任何一个文件没格式化就失败。
+      # 本地修：cd frontend && npm run format
+      - name: Check formatting
+        working-directory: frontend
+        run: npx prettier --check .
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint

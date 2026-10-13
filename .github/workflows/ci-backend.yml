@@ -1,0 +1,46 @@
+name: CI Backend
+
+# PR 门禁（后端）：cargo check 过才允许合入。
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/ci-backend.yml'
+  # 手动触发，方便在没有 PR 时先验证一遍 workflow 本身（不受 paths 限制）。
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # 卡死时的兜底，避免占着 runner 烧 6 小时。
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # diesel 的 postgres 后端在编译期要链接 libpq（pq-sys 找不到头文件就报错），
+      # runner 镜像里只有 libpq5，没有 libpq-dev。
+      - name: Install libpq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      # 与 deploy-backend.yml 同一套缓存，只是 key 前缀不同（check 与 release
+      # 的 profile 不同），restore-keys 兜底可以共用已下载的 registry。
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          # 构建在 backend/ 下进行，所以 target 是 backend/target。
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target/
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-check-
+
+      # cargo check 不做 codegen，比 build 快，作为 PR 门禁够用。
+      # 不需要 DATABASE_URL：编译期只查类型，迁移是 embed 之外的独立步骤。
+      - name: Cargo check
+        working-directory: backend
+        run: cargo check --verbose
