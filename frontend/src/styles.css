@@ -604,6 +604,32 @@ button.name-link:hover:not(:disabled) {
   justify-self: start;
 }
 
+/* 分类阶元（左）+ 关联的照片（右）。没有照片时就是原来的单栏。 */
+.rank-photo {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.rank-photo .rank-list {
+  margin-bottom: 0;
+}
+
+.rank-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-photo img {
+  display: block;
+  width: 140px;
+  height: 140px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--accent-weak);
+}
+
 /* --- 物种名录 / 检索 --- */
 
 .list-grid {
@@ -1125,6 +1151,35 @@ a.link-button.secondary:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* 重要记录弹窗里已选照片的预览 */
+.bird-photo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bird-photo img {
+  display: block;
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--accent-weak);
+}
+
+/* 「选择已有照片」：整张图可点 */
+.photo-pick {
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.photo-pick:hover img {
+  filter: brightness(0.9);
 }
 
 /* 照片卡片里的「详情」：折叠时只留一行「时间 拍摄人 拍摄于地点」 */

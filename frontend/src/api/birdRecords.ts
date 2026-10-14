@@ -48,6 +48,8 @@ export interface CreateBirdRecordPayload {
   location: string | null
   note: string | null
   source: string | null
+  /// 关联的照片（同一物种的 `species_photos.id`）；null = 没有照片。
+  photo_id: string | null
 }
 
 /// 三态：字段缺失 = 保持不变，`null` = 置为 NULL，有值 = 改成新值。
@@ -60,6 +62,8 @@ export interface UpdateBirdRecordPayload {
   location?: string | null
   note?: string | null
   source?: string | null
+  /// 三态：缺失 = 不变，`null` = 取消关联，有值 = 改成这张照片。
+  photo_id?: string | null
 }
 
 /// POST /staff/bird-records

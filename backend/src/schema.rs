@@ -26,6 +26,7 @@ diesel::table! {
         updated_at -> Timestamp,
         observed_from -> Nullable<Date>,
         observed_to -> Nullable<Date>,
+        photo_id -> Nullable<Uuid>,
     }
 }
 
@@ -141,6 +142,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(bird_records -> species_photos (photo_id));
 diesel::joinable!(bird_records -> taxa (taxon_id));
 diesel::joinable!(maintenance_logs -> species_lists (list_id));
 diesel::joinable!(species_photos -> taxa (taxon_id));

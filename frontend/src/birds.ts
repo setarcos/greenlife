@@ -23,6 +23,11 @@ export interface BirdRecord {
   note: string | null
   /// 「内容来源」。
   source: string | null
+  /// 关联的照片（`species_photos.id`）：可以没有，有则必须是同一物种的照片。
+  /// 照片被删除时后端置空。
+  photo_id: string | null
+  /// 后端拼好的照片公开 URL（`/uploads/<file_path>`）；没有照片时为 null。
+  photo_url: string | null
   created_at: string
   updated_at: string
 }

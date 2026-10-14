@@ -43,8 +43,22 @@ pub struct BirdRecord {
     pub note: Option<String>,
     /// 「内容来源」，导入时是 docx 文件名。
     pub source: Option<String>,
+    /// 关联的照片（`species_photos.id`）：可以没有，有则必须是同一物种的照片。
+    /// 照片被删除时外键 ON DELETE SET NULL，这里自动变回 NULL。
+    pub photo_id: Option<Uuid>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+}
+
+/// 接口返回的重要记录：数据库字段 + 拼好的照片公开 URL。
+///
+/// 与 `photo_models::PhotoResponse` 同一个思路：路径怎么暴露给浏览器是部署
+/// 决定（nginx `location /uploads/`），前端只认 `photo_url` 这一个字段。
+#[derive(Serialize, Debug, Clone)]
+pub struct BirdRecordResponse {
+    #[serde(flatten)]
+    pub record: BirdRecord,
+    pub photo_url: Option<String>,
 }
 
 #[derive(Insertable)]
@@ -59,6 +73,7 @@ pub struct NewBirdRecord {
     pub location: Option<String>,
     pub note: Option<String>,
     pub source: Option<String>,
+    pub photo_id: Option<Uuid>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -71,6 +86,8 @@ pub struct CreateBirdRecordDto {
     pub location: Option<String>,
     pub note: Option<String>,
     pub source: Option<String>,
+    /// 关联的照片；物种是否一致由处理器校验（要查库）。
+    pub photo_id: Option<Uuid>,
 }
 
 impl CreateBirdRecordDto {
@@ -108,6 +125,8 @@ pub struct UpdateBirdRecordDto {
     pub note: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_some")]
     pub source: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub photo_id: Option<Option<Uuid>>,
 }
 
 impl UpdateBirdRecordDto {
@@ -139,6 +158,7 @@ impl UpdateBirdRecordDto {
             && self.location.is_none()
             && self.note.is_none()
             && self.source.is_none()
+            && self.photo_id.is_none()
     }
 }
 
@@ -253,7 +273,13 @@ mod tests {
             serde_json::from_str(r#"{"observer":null,"location":"中水池"}"#).unwrap();
         assert_eq!(cleared.observer, Some(None));
         assert_eq!(cleared.location, Some(Some("中水池".to_string())));
+        assert_eq!(cleared.photo_id, None);
         assert!(!cleared.is_empty());
         assert!(cleared.validate().is_ok());
+
+        // 照片同样支持三态：显式 null = 取消关联
+        let unset: UpdateBirdRecordDto = serde_json::from_str(r#"{"photo_id":null}"#).unwrap();
+        assert_eq!(unset.photo_id, Some(None));
+        assert!(!unset.is_empty());
     }
 }

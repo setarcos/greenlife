@@ -17,6 +17,9 @@ export interface SpeciesCardTarget {
   source?: string | null
   record_no?: string | null
   updated_at?: string
+  /// 关联的照片（`/uploads/...`）。有则在「分类阶元」右侧显示；
+  /// 没有这个字段的卡片（名录记录 / 物种检索）不显示照片。
+  photo_url?: string | null
 }
 </script>
 
@@ -40,6 +43,9 @@ const props = defineProps<{
   /// 编的是记录本身 —— 各页面用自己已有的编辑框：名录记录回「物种名录」页、
   /// 重要记录回「鸟类调查」页；没有编辑框的页面（物种检索）自己跳到有编辑框的页面。
   onEditRecord?: (target: SpeciesCardTarget) => void
+  /// 隐藏卡片上的「上传照片」入口。重要记录卡片不需要从卡片里传照片
+  /// （照片在记录的编辑弹窗里挂），传了以免和记录的编辑入口混在一起。
+  hideUploadPhoto?: boolean
 }>()
 
 /// 「记录信息」里的一行。
@@ -156,7 +162,7 @@ defineExpose({ open })
         <div class="head-actions">
           <!-- 照片入口：任何登录的 STAFF / ADMIN 都能上传，游客只能看。 -->
           <RouterLink
-            v-if="canManage"
+            v-if="canManage && !hideUploadPhoto"
             class="link-button"
             :to="{ name: 'photos', query: { taxon: record.taxon_id, upload: '1' } }"
           >
@@ -179,17 +185,31 @@ defineExpose({ open })
       </div>
 
       <h3>分类阶元</h3>
-      <p v-if="error" class="alert error">{{ error }}</p>
-      <p v-else-if="loading" class="muted">加载中…</p>
-      <div v-else class="rank-list">
-        <div v-for="row in rankRows" :key="row.rank" class="rank-row">
-          <span class="tag rank-tag">{{ row.label }}</span>
-          <span v-if="row.taxon === null" class="muted">—</span>
-          <span v-else class="rank-name">
-            <span v-if="row.taxon.chinese_name !== null">{{ row.taxon.chinese_name }} </span>
-            <i class="muted">{{ row.taxon.scientific_name }}</i>
-          </span>
+      <div class="rank-photo">
+        <div class="rank-column">
+          <p v-if="error" class="alert error">{{ error }}</p>
+          <p v-else-if="loading" class="muted">加载中…</p>
+          <div v-else class="rank-list">
+            <div v-for="row in rankRows" :key="row.rank" class="rank-row">
+              <span class="tag rank-tag">{{ row.label }}</span>
+              <span v-if="row.taxon === null" class="muted">—</span>
+              <span v-else class="rank-name">
+                <span v-if="row.taxon.chinese_name !== null">{{ row.taxon.chinese_name }} </span>
+                <i class="muted">{{ row.taxon.scientific_name }}</i>
+              </span>
+            </div>
+          </div>
         </div>
+        <!-- 重要记录关联的照片：没有照片时这一列不存在，布局和原来一样。 -->
+        <a
+          v-if="record.photo_url"
+          class="card-photo"
+          :href="record.photo_url"
+          target="_blank"
+          rel="noopener"
+        >
+          <img :src="record.photo_url" alt="记录照片" />
+        </a>
       </div>
 
       <h3>记录信息</h3>

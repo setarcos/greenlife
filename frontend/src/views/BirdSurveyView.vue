@@ -8,6 +8,7 @@ import {
   updateBirdRecord,
 } from '../api/birdRecords'
 import { errorMessage } from '../api/http'
+import { createPhoto, listPhotos } from '../api/photos'
 import { findTaxonId, listRecords } from '../api/taxonomy'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import NoteText from '../components/NoteText.vue'
@@ -17,6 +18,7 @@ import SpeciesCard, { type SpeciesCardTarget } from '../components/SpeciesCard.v
 import { useAuthStore } from '../stores/auth'
 import { BIRD_CLASS_SCIENTIFIC_NAME, type BirdRecord } from '../birds'
 import { clampOffset } from '../pagination'
+import { MAX_PHOTOS_PER_TAXON, validatePhotoFile, type SpeciesPhoto } from '../photos'
 import { taxonLabel, type SpeciesRecord } from '../taxonomy'
 import { formatTimestamp } from '../types'
 import {
@@ -51,6 +53,50 @@ const PAGE_SIZE = 50
 function optional(value: string): string | null {
   const trimmed = value.trim()
   return trimmed === '' ? null : trimmed
+}
+
+/// `<input type="date">` 需要的本地日期，不能用 toISOString（那是 UTC）。
+function today(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
+
+function pad2(value: string): string {
+  return value.padStart(2, '0')
+}
+
+/// 从「时间」原文里抠出一个拍摄日期（后端 `bird_observed_bounds` 的简化版）：
+/// 认不出具体日子就退到当月 1 日 / 当年 1 月 1 日，再认不出用今天。
+/// 只用来给弹窗里上传的照片填 `taken_at`（决定年月子目录），不参与时间筛选。
+function dateFromObservedAt(value: string): string {
+  const text = value.trim()
+  const full =
+    text.match(/^(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日$/) ??
+    text.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/) ??
+    null
+  if (full !== null) {
+    return `${full[1]}-${pad2(full[2])}-${pad2(full[3])}`
+  }
+  const month = text.match(/^(\d{4})\s*年\s*(\d{1,2})\s*月/)
+  if (month !== null) {
+    return `${month[1]}-${pad2(month[2])}-01`
+  }
+  const year = text.match(/^(\d{4})/)
+  if (year !== null) {
+    return `${year[1]}-01-01`
+  }
+  return today()
+}
+
+/// 照片卡片的一行摘要（与「物种照片」页同口径）。
+function photoSummary(photo: SpeciesPhoto): string {
+  const parts = [photo.taken_at]
+  if (photo.photographer !== null && photo.photographer !== '') {
+    parts.push(photo.photographer)
+  }
+  return parts.join(' ')
 }
 
 // ==========================================================================
@@ -228,10 +274,96 @@ const filteredBirds = computed(() => {
 
 /// 选了鸟种就把学名 / 中文名带出来：这两个字段在弹窗里不单独填，
 /// 避免手填的名字和关联的物种对不上。
+/// 顺带清掉已选照片：照片必须和记录同物种，换了鸟选中的照片就不合法了。
 function pickBird(): void {
   const bird = birdOptions.value.find((item) => item.taxon_id === form.taxonId)
   form.scientificName = bird?.scientific_name ?? ''
   form.chineseName = bird?.chinese_name ?? ''
+  clearPhoto()
+}
+
+// --- 照片：上传新照片 / 从同一鸟种已有照片里挑一张 ---
+
+/// 隐藏的文件输入：由「上传照片」按钮触发。
+const photoFileInput = ref<HTMLInputElement | null>(null)
+
+function clearPhoto(): void {
+  form.photoId = ''
+  form.photoUrl = ''
+}
+
+/// 上传新照片。照片自己的元数据从记录带出，不单独填：
+/// 拍摄时间取「时间」解析出的日期（解析不出用今天），拍摄人 / 地点 / 备注照抄。
+async function uploadRecordPhoto(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  input.value = ''
+  if (file === null) {
+    return
+  }
+  if (form.taxonId === '') {
+    form.error = '请先选择鸟种'
+    return
+  }
+  const problem = validatePhotoFile(file)
+  if (problem !== '') {
+    form.error = problem
+    return
+  }
+
+  form.error = ''
+  form.photoUploading = true
+  try {
+    const photo = await createPhoto({
+      file,
+      taxonId: form.taxonId,
+      takenAt: dateFromObservedAt(form.observedAt),
+      photographer: optional(form.observer),
+      location: optional(form.location),
+      note: optional(form.note),
+    })
+    form.photoId = photo.id
+    form.photoUrl = photo.url
+  } catch (e) {
+    form.error = errorMessage(e)
+  } finally {
+    form.photoUploading = false
+  }
+}
+
+/// 「选择已有照片」弹窗：列这个鸟种的照片，点一张就选上。
+const photoPicker = ref<HTMLDialogElement | null>(null)
+const pickerPhotos = ref<SpeciesPhoto[]>([])
+const pickerLoading = ref(false)
+const pickerError = ref('')
+
+async function openPhotoPicker(): Promise<void> {
+  if (form.taxonId === '') {
+    return
+  }
+  pickerError.value = ''
+  pickerPhotos.value = []
+  pickerLoading.value = true
+  photoPicker.value?.showModal()
+  try {
+    // 每个物种最多 9 张（后端上限），一页就拉完了。
+    const page = await listPhotos({ taxonId: form.taxonId, limit: MAX_PHOTOS_PER_TAXON })
+    pickerPhotos.value = page.items
+  } catch (e) {
+    pickerError.value = errorMessage(e)
+  } finally {
+    pickerLoading.value = false
+  }
+}
+
+function closePhotoPicker(): void {
+  photoPicker.value?.close()
+}
+
+function choosePhoto(photo: SpeciesPhoto): void {
+  form.photoId = photo.id
+  form.photoUrl = photo.url
+  closePhotoPicker()
 }
 
 // --- 重要记录的增 / 改 / 删 ---
@@ -279,6 +411,11 @@ const form = reactive({
   location: '',
   note: '',
   source: '',
+  /// 选中的照片（`species_photos.id`）；'' = 没有照片。
+  photoId: '',
+  /// 已选照片的公开 URL，只用于弹窗里的预览。
+  photoUrl: '',
+  photoUploading: false,
   submitting: false,
   error: '',
 })
@@ -293,6 +430,9 @@ function resetForm(): void {
   form.location = ''
   form.note = ''
   form.source = ''
+  form.photoId = ''
+  form.photoUrl = ''
+  form.photoUploading = false
   form.error = ''
   birdKeyword.value = ''
 }
@@ -336,6 +476,8 @@ function openEditRecord(record: BirdRecord): void {
   form.location = record.location ?? ''
   form.note = record.note ?? ''
   form.source = record.source ?? ''
+  form.photoId = record.photo_id ?? ''
+  form.photoUrl = record.photo_url ?? ''
   openDialog()
 }
 
@@ -381,6 +523,7 @@ async function submitRecord(): Promise<void> {
       location: optional(form.location),
       note: optional(form.note),
       source: optional(form.source),
+      photo_id: form.photoId === '' ? null : form.photoId,
     }
     if (form.id === null) {
       const created = await createBirdRecord(payload)
@@ -665,6 +808,43 @@ onMounted(async () => {
         <input id="bird-source" v-model="form.source" />
       </div>
 
+      <div class="field">
+        <label>照片</label>
+        <div v-if="form.photoUrl !== ''" class="bird-photo">
+          <img :src="form.photoUrl" alt="记录照片" />
+          <button class="secondary" type="button" @click="clearPhoto">移除</button>
+        </div>
+        <div v-else class="actions">
+          <input
+            ref="photoFileInput"
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            hidden
+            @change="uploadRecordPhoto"
+          />
+          <button
+            class="secondary"
+            type="button"
+            :disabled="form.photoUploading || form.taxonId === ''"
+            @click="photoFileInput?.click()"
+          >
+            {{ form.photoUploading ? '上传中…' : '上传照片' }}
+          </button>
+          <button
+            class="secondary"
+            type="button"
+            :disabled="form.taxonId === ''"
+            @click="openPhotoPicker"
+          >
+            选择已有照片
+          </button>
+        </div>
+        <span class="hint"
+          >可以上传新照片，也可以从这只鸟已有的照片里挑一张。照片存在「物种照片」里，同一物种最多 9
+          张；关联后会自动打上「重要记录」标记。</span
+        >
+      </div>
+
       <div class="actions">
         <button type="submit" :disabled="form.submitting">
           {{ form.submitting ? '保存中…' : '保存' }}
@@ -674,6 +854,29 @@ onMounted(async () => {
         </button>
       </div>
     </form>
+  </dialog>
+
+  <!-- 「选择已有照片」：只列当前鸟种的照片，点一张就选上 -->
+  <dialog ref="photoPicker" class="modal modal-wide" @click.self="closePhotoPicker">
+    <h2>选择已有照片</h2>
+    <p v-if="pickerError" class="alert error">{{ pickerError }}</p>
+    <p v-if="pickerLoading" class="muted">加载中…</p>
+    <p v-else-if="pickerPhotos.length === 0" class="muted">
+      这只鸟还没有照片，先用「上传照片」传一张。
+    </p>
+    <div v-else class="photo-grid">
+      <figure v-for="photo in pickerPhotos" :key="photo.id" class="photo-card">
+        <button class="photo-pick" type="button" @click="choosePhoto(photo)">
+          <img :src="photo.url" alt="候选照片" loading="lazy" />
+        </button>
+        <figcaption class="photo-meta">
+          <span class="photo-summary">{{ photoSummary(photo) }}</span>
+        </figcaption>
+      </figure>
+    </div>
+    <div class="actions">
+      <button class="secondary" type="button" @click="closePhotoPicker">取消</button>
+    </div>
   </dialog>
 
   <ConfirmDialog
@@ -690,12 +893,7 @@ onMounted(async () => {
     @cancel="deleteError = ''"
   />
 
-  <!-- 点学名 / 中文名打开，与「物种名录」页共用 -->
-  <SpeciesCard ref="card" :on-edit-record="editBirdRecordFromCard">
-    <template #actions="{ record, close }">
-      <button v-if="canManage" type="button" @click="openCreateRecordFor(record, close)">
-        添加新重要记录
-      </button>
-    </template>
-  </SpeciesCard>
+  <!-- 点学名 / 中文名打开的重要记录卡片：只看分类阶元与记录信息。
+       照片在记录的编辑弹窗里挂，卡片上不再放「上传照片」/「新增记录」入口。 -->
+  <SpeciesCard ref="card" :on-edit-record="editBirdRecordFromCard" hide-upload-photo />
 </template>
