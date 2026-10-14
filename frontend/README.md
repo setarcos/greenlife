@@ -35,6 +35,7 @@ src/
 │   ├── staffTaxonomy.ts  /staff/taxonomy/*（STAFF 或 ADMIN 的增删改）
 │   ├── maintenanceLogs.ts  /staff/maintenance-logs/*（读 + 写，STAFF 或 ADMIN）
 │   └── birdRecords.ts  /bird-records/*（公开读）与 /staff/bird-records/*（写）
+│   └── birdSurveys.ts  /bird-surveys/*（公开读）与 /staff/bird-surveys/*（写，含 GPX 导入）
 ├── stores/auth.ts  Pinia：token + 当前用户；isAdmin / isStaff 由 role 推导
 ├── stores/pendingUsers.ts  Pinia：待审批人数，供「用户管理」菜单的红点使用
 ├── router/         路由表 + 守卫（requiresAuth / requiresAdmin）
@@ -46,7 +47,8 @@ src/
 │                   BirdSurveyView（鸟类调查）、MaintenanceLogsView（维护日志）
 ├── taxonomy.ts     分类树 / 名录的类型与阶元辅助（阶元标签、深度、taxonLabel）
 ├── maintenanceLogs.ts  维护日志的类型
-├── birds.ts        鸟类调查的类型
+├── birds.ts        鸟类调查「重要记录」的类型
+├── birdSurveys.ts  鸟类调查「鸟调记录」的类型
 ├── pagination.ts   分页响应的类型与页码辅助（Paged / pageCount / clampOffset）
 ├── types.ts        与后端用户 DTO 对应的类型
 └── validation.ts   与 backend/src/*_models.rs 的长度常量对齐的前端校验
@@ -137,4 +139,16 @@ STAFF 或 ADMIN；路由见上面的「页面与权限」。
   「新增 / 编辑 / 删除」由 `isStaff` 控制。新增 / 编辑的物种**只能选鸟纲**：
   不再逐级选门 / 纲 / 目 / 科，而是一个带筛选词的鸟种下拉框（候选和「鸟种清单」
   同一个来源）；学名与中文名随鸟种自动带出，不手填。
-- **鸟调记录**：还没有对应的表和接口，先是一个空标签。
+- **鸟调记录**：`bird_surveys` / `bird_survey_records` 表（迁移
+  `2026-10-14-000000`）。一次鸟调是表头（日期 / 领队 / 天气 / 备注 / 来源），
+  明细是逐条的鸟种观察（数量 / 时间 / 经纬度 / 备注）。读接口公开，写接口在
+  `/staff/bird-surveys`（含 `POST /staff/bird-surveys/import`）。
+  - **「鸟种数」不落库**：读接口按明细里的不同鸟种现算（关联了分类的按
+    `taxon_id` 去重，未匹配的按中文名去重），明细一改就跟着变。
+  - **GPX 导入**（`backend/src/gpx.rs`）：一个 `<wpt>` 一条明细，`<name>` 是
+    鸟种中文名、`<desc>` 是数量、`<time>` 是 UTC（入库换算成北京时间）、
+    `gpxx:StreetAddress` 是备注。中文名能对上鸟纲（Aves）节点的关联 `taxon_id`，
+    对不上的（旧名 / 名录里没有）保留原名、`taxon_id` 为空，界面标「未匹配」。
+    导入时只填领队，日期 / 天气会从文件名（`20180522北大鸟调多云转晴.gpx`）
+    猜出来作为默认值，可以改；原始 GPX **不落盘**，只把文件名记进 `source`。
+  - 页面上的「导入 / 新增 / 编辑 / 删除」由 `isStaff` + 管理模式控制。

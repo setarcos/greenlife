@@ -23,6 +23,7 @@ derive_more = "2"
 bitflags = { version = "2.4", features = ["serde"] }
 actix-multipart = "0.8.5"
 actix-files = "0.7.0"
+quick-xml = "0.41" # 解析鸟调 GPX 里的 waypoint
 
 # 注意：actix-service / actix-rt 不再作为直接依赖。
 # actix-web 已经 re-export 了 actix_web::dev::{Service, Transform, forward_ready}

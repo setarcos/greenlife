@@ -29,6 +29,11 @@ export const BIRD_OBSERVER_MAX_CHARS = 200 // 「记录人」
 export const BIRD_OBSERVED_AT_MAX_CHARS = 100 // 「时间」（原文）
 export const BIRD_LOCATION_MAX_CHARS = 200 // 「地点」
 
+/// 与 backend/src/bird_models.rs 顶部的常量对齐（鸟调记录）。
+export const SURVEY_LEADER_MAX_CHARS = 200 // 鸟调的「领队」
+export const SURVEY_WEATHER_MAX_CHARS = 100 // 鸟调的「天气」
+export const SURVEY_RECORD_NAME_MAX_CHARS = 200 // 鸟调明细的中文名 / 学名
+
 /// Rust 的 `chars().count()` 数的是字符，JS 的 `.length` 数的是 UTF-16 码元
 /// —— 一个 emoji 在后端算 1 个字符、在前端会算成 2 个。
 export function charCount(value: string): number {

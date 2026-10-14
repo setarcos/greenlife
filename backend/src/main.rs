@@ -4,6 +4,7 @@ mod bird_models;
 mod config;
 mod db;
 mod errors;
+mod gpx;
 mod maintenance_handlers;
 mod maintenance_models;
 mod middleware;
@@ -15,6 +16,7 @@ mod rate_limit;
 mod schema;
 mod taxonomy_handlers;
 mod taxonomy_models;
+mod upload;
 mod user_handlers;
 
 use crate::config::{AppConfig, UPLOAD_URL_PREFIX};
@@ -157,6 +159,17 @@ async fn main() -> std::io::Result<()> {
                             .service(bird_handlers::update_bird_record)
                             .service(bird_handlers::delete_bird_record),
                     )
+                    // 鸟类调查「鸟调记录」的写接口（含 GPX 导入）。
+                    .service(
+                        web::scope("/bird-surveys")
+                            .service(bird_handlers::create_bird_survey)
+                            .service(bird_handlers::import_bird_survey)
+                            .service(bird_handlers::update_bird_survey)
+                            .service(bird_handlers::delete_bird_survey)
+                            .service(bird_handlers::create_survey_record)
+                            .service(bird_handlers::update_survey_record)
+                            .service(bird_handlers::delete_survey_record),
+                    )
                     // 物种照片的写接口。上传是 multipart，放宽 payload 上限，
                     // 让「2 MiB 照片 + 表单字段」过得去（具体大小在处理器里再校）。
                     .service(
@@ -186,6 +199,12 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/bird-records")
                     .service(bird_handlers::list_bird_records)
                     .service(bird_handlers::get_bird_record),
+            )
+            // 鸟类调查「鸟调记录」的读接口：同样公开。
+            .service(
+                web::scope("/bird-surveys")
+                    .service(bird_handlers::list_bird_surveys)
+                    .service(bird_handlers::get_bird_survey),
             )
             // 物种照片的读接口：同样公开。
             .service(

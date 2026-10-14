@@ -7,6 +7,17 @@ import {
   listBirdRecords,
   updateBirdRecord,
 } from '../api/birdRecords'
+import {
+  createBirdSurvey,
+  createSurveyRecord,
+  deleteBirdSurvey,
+  deleteSurveyRecord,
+  getBirdSurvey,
+  importBirdSurvey,
+  listBirdSurveys,
+  updateBirdSurvey,
+  updateSurveyRecord,
+} from '../api/birdSurveys'
 import { errorMessage } from '../api/http'
 import { createPhoto, listPhotos } from '../api/photos'
 import { findTaxonId, listRecords } from '../api/taxonomy'
@@ -17,6 +28,7 @@ import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import SpeciesCard, { type SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import { useAuthStore } from '../stores/auth'
 import { BIRD_CLASS_SCIENTIFIC_NAME, type BirdRecord } from '../birds'
+import type { BirdSurvey, BirdSurveyDetail, BirdSurveyRecord } from '../birdSurveys'
 import { clampOffset } from '../pagination'
 import { MAX_PHOTOS_PER_TAXON, validatePhotoFile, type SpeciesPhoto } from '../photos'
 import { taxonLabel, type SpeciesRecord } from '../taxonomy'
@@ -26,6 +38,9 @@ import {
   BIRD_NAME_MAX_CHARS,
   BIRD_OBSERVED_AT_MAX_CHARS,
   BIRD_OBSERVER_MAX_CHARS,
+  SURVEY_LEADER_MAX_CHARS,
+  SURVEY_RECORD_NAME_MAX_CHARS,
+  SURVEY_WEATHER_MAX_CHARS,
   charCount,
   validateField,
 } from '../validation'
@@ -34,7 +49,7 @@ import {
 ///
 /// - 鸟种清单：鸟纲（Aves）下的全部名录记录，直接复用 `/taxonomy/records`。
 /// - 重要记录：`bird_records` 表，docx 导入 + STAFF 手工补录。
-/// - 鸟调记录：还没有表，先放一个空标签。
+/// - 鸟调记录：`bird_surveys` / `bird_survey_records`，GPX 导入 + 手工维护。
 const auth = useAuthStore()
 const router = useRouter()
 const canManage = computed(() => auth.canManage)
@@ -572,6 +587,580 @@ async function confirmDeleteRecord(): Promise<void> {
   }
 }
 
+// ==========================================================================
+// 鸟调记录：表头（日期 / 领队 / 天气 / 鸟种数 / 备注）+ GPX 导入 + 明细维护
+// ==========================================================================
+
+const surveys = ref<BirdSurvey[]>([])
+const surveysLoading = ref(false)
+const surveysError = ref('')
+const surveysKeyword = ref('')
+const surveysAppliedKeyword = ref('')
+/// 日期范围（`yyyy-mm-dd`）；'' = 不限。
+const surveysFrom = ref('')
+const surveysTo = ref('')
+const surveysAppliedFrom = ref('')
+const surveysAppliedTo = ref('')
+const surveysOffset = ref(0)
+const surveysTotal = ref(0)
+
+async function loadSurveys(): Promise<void> {
+  surveysLoading.value = true
+  surveysError.value = ''
+  try {
+    const page = await listBirdSurveys({
+      q: surveysAppliedKeyword.value === '' ? undefined : surveysAppliedKeyword.value,
+      from: surveysAppliedFrom.value === '' ? undefined : surveysAppliedFrom.value,
+      to: surveysAppliedTo.value === '' ? undefined : surveysAppliedTo.value,
+      limit: PAGE_SIZE,
+      offset: surveysOffset.value,
+    })
+    const clamped = clampOffset(surveysOffset.value, page.total, PAGE_SIZE)
+    if (clamped !== surveysOffset.value) {
+      surveysOffset.value = clamped
+      await loadSurveys()
+      return
+    }
+    surveys.value = page.items
+    surveysTotal.value = page.total
+  } catch (e) {
+    surveysError.value = errorMessage(e)
+  } finally {
+    surveysLoading.value = false
+  }
+}
+
+async function searchSurveys(): Promise<void> {
+  surveysAppliedKeyword.value = surveysKeyword.value.trim()
+  surveysAppliedFrom.value = surveysFrom.value
+  surveysAppliedTo.value = surveysTo.value
+  surveysOffset.value = 0
+  await loadSurveys()
+}
+
+async function clearSurveysSearch(): Promise<void> {
+  surveysKeyword.value = ''
+  surveysAppliedKeyword.value = ''
+  surveysFrom.value = ''
+  surveysTo.value = ''
+  surveysAppliedFrom.value = ''
+  surveysAppliedTo.value = ''
+  surveysOffset.value = 0
+  await loadSurveys()
+}
+
+const surveysFiltered = computed(
+  () =>
+    surveysAppliedKeyword.value !== '' ||
+    surveysAppliedFrom.value !== '' ||
+    surveysAppliedTo.value !== '',
+)
+
+async function goToSurveysPage(page: number): Promise<void> {
+  surveysOffset.value = (page - 1) * PAGE_SIZE
+  await loadSurveys()
+}
+
+/// 明细弹窗里的「位置」列：经纬度都在才显示。
+function formatCoordinates(record: BirdSurveyRecord): string {
+  if (record.latitude === null || record.longitude === null) {
+    return '—'
+  }
+  return `${record.latitude.toFixed(5)}, ${record.longitude.toFixed(5)}`
+}
+
+// --- 明细弹窗 ---
+
+const detailDialog = ref<HTMLDialogElement | null>(null)
+const detail = ref<BirdSurveyDetail | null>(null)
+const detailLoading = ref(false)
+const detailError = ref('')
+
+async function loadDetail(surveyId: string): Promise<void> {
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    detail.value = await getBirdSurvey(surveyId)
+  } catch (e) {
+    detailError.value = errorMessage(e)
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function openDetail(survey: BirdSurvey): Promise<void> {
+  savedMessage.value = ''
+  detail.value = null
+  detailError.value = ''
+  expandedRecordIds.value = new Set()
+  if (detailDialog.value !== null && !detailDialog.value.open) {
+    detailDialog.value.showModal()
+  }
+  await loadDetail(survey.id)
+}
+
+/// 明细里哪些记录展开了「时间 / 位置 / 备注」。
+const expandedRecordIds = ref<Set<string>>(new Set())
+
+function toggleRecordDetails(recordId: string): void {
+  const next = new Set(expandedRecordIds.value)
+  if (next.has(recordId)) {
+    next.delete(recordId)
+  } else {
+    next.add(recordId)
+  }
+  expandedRecordIds.value = next
+}
+
+function closeDetail(): void {
+  detailDialog.value?.close()
+}
+
+/// 明细增删改后表头也要重拉：鸟种数是后端按明细现算的。
+async function refreshDetail(): Promise<void> {
+  if (detail.value !== null) {
+    await loadDetail(detail.value.id)
+  }
+  await loadSurveys()
+}
+
+// --- 导入 GPX ---
+
+const importDialog = ref<HTMLDialogElement | null>(null)
+const importForm = reactive({
+  file: null as File | null,
+  leader: '',
+  surveyDate: '',
+  weather: '',
+  note: '',
+  importing: false,
+  error: '',
+  result: '',
+})
+
+/// 从 `20180522北大鸟调多云转晴.gpx` 里猜出日期和天气，作为导入表单的默认值。
+/// 猜不出就留空让用户自己填（后端缺日期时也会退到最早 waypoint 的日期）。
+function parseGpxFilename(filename: string): { date: string; weather: string } {
+  const base = filename.replace(/\.[^.]+$/, '')
+  const match = base.match(/^(\d{4})(\d{2})(\d{2})/)
+  const date = match === null ? '' : `${match[1]}-${match[2]}-${match[3]}`
+  const rest = (match === null ? base : base.slice(8)).replace(/北大鸟调|鸟调记录|鸟调/g, '').trim()
+  return { date, weather: rest }
+}
+
+function resetImportForm(): void {
+  importForm.file = null
+  importForm.leader = ''
+  importForm.surveyDate = ''
+  importForm.weather = ''
+  importForm.note = ''
+  importForm.error = ''
+  importForm.result = ''
+}
+
+function openImport(): void {
+  savedMessage.value = ''
+  resetImportForm()
+  if (importDialog.value !== null && !importDialog.value.open) {
+    importDialog.value.showModal()
+  }
+}
+
+function closeImport(): void {
+  importDialog.value?.close()
+}
+
+function onImportFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  importForm.file = file
+  if (file === null) {
+    return
+  }
+  const guessed = parseGpxFilename(file.name)
+  if (importForm.surveyDate === '') {
+    importForm.surveyDate = guessed.date
+  }
+  if (importForm.weather === '') {
+    importForm.weather = guessed.weather
+  }
+}
+
+async function submitImport(): Promise<void> {
+  importForm.error = ''
+  importForm.result = ''
+  if (importForm.file === null) {
+    importForm.error = '请选择 GPX 文件'
+    return
+  }
+  const leader = importForm.leader.trim()
+  if (leader === '') {
+    importForm.error = '请填写领队'
+    return
+  }
+  if (charCount(leader) > SURVEY_LEADER_MAX_CHARS) {
+    importForm.error = `领队最多 ${SURVEY_LEADER_MAX_CHARS} 个字符`
+    return
+  }
+  const weather = importForm.weather.trim()
+  if (charCount(weather) > SURVEY_WEATHER_MAX_CHARS) {
+    importForm.error = `天气最多 ${SURVEY_WEATHER_MAX_CHARS} 个字符`
+    return
+  }
+
+  importForm.importing = true
+  try {
+    const created = await importBirdSurvey({
+      file: importForm.file,
+      leader,
+      surveyDate: importForm.surveyDate,
+      weather,
+      note: importForm.note.trim(),
+    })
+    const unmatched = [
+      ...new Set(
+        created.records
+          .filter((record) => record.taxon_id === null)
+          .map((record) => record.chinese_name),
+      ),
+    ]
+    let message = `已导入 ${created.survey_date} 的鸟调：${created.species_count} 个鸟种 / ${created.records.length} 条观察`
+    if (unmatched.length > 0) {
+      message += `。未匹配（保留原名）：${unmatched.join('、')}`
+    }
+    importForm.result = message
+    await loadSurveys()
+  } catch (e) {
+    importForm.error = errorMessage(e)
+  } finally {
+    importForm.importing = false
+  }
+}
+
+// --- 新增 / 编辑鸟调表头 ---
+
+const surveyDialog = ref<HTMLDialogElement | null>(null)
+const surveyForm = reactive({
+  id: null as string | null,
+  surveyDate: '',
+  leader: '',
+  weather: '',
+  note: '',
+  submitting: false,
+  error: '',
+})
+
+function resetSurveyForm(): void {
+  surveyForm.id = null
+  surveyForm.surveyDate = today()
+  surveyForm.leader = ''
+  surveyForm.weather = ''
+  surveyForm.note = ''
+  surveyForm.error = ''
+}
+
+function openCreateSurvey(): void {
+  savedMessage.value = ''
+  resetSurveyForm()
+  if (surveyDialog.value !== null && !surveyDialog.value.open) {
+    surveyDialog.value.showModal()
+  }
+}
+
+function openEditSurvey(survey: BirdSurvey): void {
+  savedMessage.value = ''
+  resetSurveyForm()
+  surveyForm.id = survey.id
+  surveyForm.surveyDate = survey.survey_date
+  surveyForm.leader = survey.leader ?? ''
+  surveyForm.weather = survey.weather ?? ''
+  surveyForm.note = survey.note ?? ''
+  if (surveyDialog.value !== null && !surveyDialog.value.open) {
+    surveyDialog.value.showModal()
+  }
+}
+
+function closeSurveyDialog(): void {
+  surveyDialog.value?.close()
+}
+
+async function submitSurvey(): Promise<void> {
+  surveyForm.error = ''
+  if (surveyForm.surveyDate === '') {
+    surveyForm.error = '请选择日期'
+    return
+  }
+  if (charCount(surveyForm.leader.trim()) > SURVEY_LEADER_MAX_CHARS) {
+    surveyForm.error = `领队最多 ${SURVEY_LEADER_MAX_CHARS} 个字符`
+    return
+  }
+  if (charCount(surveyForm.weather.trim()) > SURVEY_WEATHER_MAX_CHARS) {
+    surveyForm.error = `天气最多 ${SURVEY_WEATHER_MAX_CHARS} 个字符`
+    return
+  }
+
+  surveyForm.submitting = true
+  try {
+    if (surveyForm.id === null) {
+      const created = await createBirdSurvey({
+        survey_date: surveyForm.surveyDate,
+        leader: optional(surveyForm.leader),
+        weather: optional(surveyForm.weather),
+        note: optional(surveyForm.note),
+      })
+      savedMessage.value = `已新增 ${created.survey_date} 的鸟调记录`
+    } else {
+      const updated = await updateBirdSurvey(surveyForm.id, {
+        survey_date: surveyForm.surveyDate,
+        leader: optional(surveyForm.leader),
+        weather: optional(surveyForm.weather),
+        note: optional(surveyForm.note),
+      })
+      savedMessage.value = `已更新 ${updated.survey_date} 的鸟调记录`
+      if (detail.value !== null && detail.value.id === updated.id) {
+        await loadDetail(updated.id)
+      }
+    }
+    closeSurveyDialog()
+    await loadSurveys()
+  } catch (e) {
+    surveyForm.error = errorMessage(e)
+  } finally {
+    surveyForm.submitting = false
+  }
+}
+
+// --- 新增 / 编辑鸟种明细 ---
+
+/// 下拉框里「未匹配」那一项的值：选它就不关联分类，自己填中文名。
+const MANUAL_TAXON = '__manual__'
+
+const surveyRecordDialog = ref<HTMLDialogElement | null>(null)
+const surveyRecordBirdKeyword = ref('')
+const surveyRecordForm = reactive({
+  id: null as string | null,
+  taxonId: MANUAL_TAXON,
+  scientificName: '',
+  chineseName: '',
+  quantity: '',
+  observedAt: '',
+  latitude: '',
+  longitude: '',
+  note: '',
+  submitting: false,
+  error: '',
+})
+
+function resetSurveyRecordForm(): void {
+  surveyRecordForm.id = null
+  surveyRecordForm.taxonId = MANUAL_TAXON
+  surveyRecordForm.scientificName = ''
+  surveyRecordForm.chineseName = ''
+  surveyRecordForm.quantity = ''
+  surveyRecordForm.observedAt = ''
+  surveyRecordForm.latitude = ''
+  surveyRecordForm.longitude = ''
+  surveyRecordForm.note = ''
+  surveyRecordForm.error = ''
+  surveyRecordBirdKeyword.value = ''
+}
+
+function openCreateSurveyRecord(): void {
+  savedMessage.value = ''
+  resetSurveyRecordForm()
+  if (surveyRecordDialog.value !== null && !surveyRecordDialog.value.open) {
+    surveyRecordDialog.value.showModal()
+  }
+}
+
+/// `<input type="datetime-local">` 只认 `yyyy-mm-ddThh:mm`，naive datetime 截掉秒。
+function toLocalInput(value: string | null): string {
+  return value === null ? '' : value.slice(0, 16)
+}
+
+function openEditSurveyRecord(record: BirdSurveyRecord): void {
+  savedMessage.value = ''
+  resetSurveyRecordForm()
+  surveyRecordForm.id = record.id
+  surveyRecordForm.taxonId = record.taxon_id ?? MANUAL_TAXON
+  surveyRecordForm.scientificName = record.scientific_name ?? ''
+  surveyRecordForm.chineseName = record.chinese_name
+  surveyRecordForm.quantity = record.quantity === null ? '' : String(record.quantity)
+  surveyRecordForm.observedAt = toLocalInput(record.observed_at)
+  surveyRecordForm.latitude = record.latitude === null ? '' : String(record.latitude)
+  surveyRecordForm.longitude = record.longitude === null ? '' : String(record.longitude)
+  surveyRecordForm.note = record.note ?? ''
+  if (surveyRecordDialog.value !== null && !surveyRecordDialog.value.open) {
+    surveyRecordDialog.value.showModal()
+  }
+}
+
+function closeSurveyRecordDialog(): void {
+  surveyRecordDialog.value?.close()
+}
+
+/// 选了鸟种就把学名 / 中文名带出来；具体名字以后端从分类树查到的为准。
+function pickSurveyRecordBird(): void {
+  const bird = birdOptions.value.find((item) => item.taxon_id === surveyRecordForm.taxonId)
+  surveyRecordForm.scientificName = bird?.scientific_name ?? ''
+  surveyRecordForm.chineseName = bird?.chinese_name ?? ''
+}
+
+/// 选中的鸟种不能被筛选词筛掉，否则下拉框会显示成空白。
+const filteredSurveyRecordBirds = computed(() => {
+  const all = birdOptions.value
+  const keyword = surveyRecordBirdKeyword.value.trim().toLowerCase()
+  if (keyword === '') {
+    return all
+  }
+  const matched = all.filter((bird) => taxonLabel(bird).toLowerCase().includes(keyword))
+  const chosen = all.find((bird) => bird.taxon_id === surveyRecordForm.taxonId)
+  if (chosen !== undefined && !matched.includes(chosen)) {
+    matched.unshift(chosen)
+  }
+  return matched
+})
+
+/// 数字输入框：空串 -> null。
+function optionalNumber(value: string): number | null {
+  const text = value.trim()
+  return text === '' ? null : Number(text)
+}
+
+/// `datetime-local` 给的是 `yyyy-mm-ddThh:mm`，补上秒让 chrono 能解析。
+function normalizeObservedAt(value: string): string | null {
+  const text = value.trim()
+  if (text === '') {
+    return null
+  }
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text) ? `${text}:00` : text
+}
+
+async function submitSurveyRecord(): Promise<void> {
+  surveyRecordForm.error = ''
+  if (detail.value === null) {
+    return
+  }
+  const manual = surveyRecordForm.taxonId === MANUAL_TAXON
+  if (manual && surveyRecordForm.chineseName.trim() === '') {
+    surveyRecordForm.error = '请填写鸟种名称'
+    return
+  }
+  if (manual && charCount(surveyRecordForm.chineseName.trim()) > SURVEY_RECORD_NAME_MAX_CHARS) {
+    surveyRecordForm.error = `鸟种名称最多 ${SURVEY_RECORD_NAME_MAX_CHARS} 个字符`
+    return
+  }
+  const quantity = optionalNumber(surveyRecordForm.quantity)
+  if (quantity !== null && (!Number.isInteger(quantity) || quantity < 0)) {
+    surveyRecordForm.error = '数量必须是非负整数'
+    return
+  }
+  const latitude = optionalNumber(surveyRecordForm.latitude)
+  if (latitude !== null && (Number.isNaN(latitude) || latitude < -90 || latitude > 90)) {
+    surveyRecordForm.error = '纬度必须在 -90 到 90 之间'
+    return
+  }
+  const longitude = optionalNumber(surveyRecordForm.longitude)
+  if (longitude !== null && (Number.isNaN(longitude) || longitude < -180 || longitude > 180)) {
+    surveyRecordForm.error = '经度必须在 -180 到 180 之间'
+    return
+  }
+
+  surveyRecordForm.submitting = true
+  try {
+    const payload = {
+      taxon_id: manual ? null : surveyRecordForm.taxonId,
+      scientific_name: manual ? optional(surveyRecordForm.scientificName) : null,
+      chinese_name: manual ? surveyRecordForm.chineseName.trim() : null,
+      quantity,
+      observed_at: normalizeObservedAt(surveyRecordForm.observedAt),
+      latitude,
+      longitude,
+      note: optional(surveyRecordForm.note),
+    }
+    if (surveyRecordForm.id === null) {
+      const created = await createSurveyRecord(detail.value.id, payload)
+      savedMessage.value = `已添加鸟种「${created.chinese_name}」`
+    } else {
+      const updated = await updateSurveyRecord(detail.value.id, surveyRecordForm.id, payload)
+      savedMessage.value = `已更新鸟种「${updated.chinese_name}」`
+    }
+    closeSurveyRecordDialog()
+    await refreshDetail()
+  } catch (e) {
+    surveyRecordForm.error = errorMessage(e)
+  } finally {
+    surveyRecordForm.submitting = false
+  }
+}
+
+// --- 删除鸟调 / 删除明细 ---
+
+const surveyDeleteDialog = ref<InstanceType<typeof ConfirmDialog> | null>(null)
+const surveyDeleteError = ref('')
+const surveyDeleting = ref(false)
+const pendingSurvey = ref<BirdSurvey | null>(null)
+
+function openDeleteSurvey(survey: BirdSurvey): void {
+  savedMessage.value = ''
+  surveyDeleteError.value = ''
+  pendingSurvey.value = survey
+  surveyDeleteDialog.value?.open()
+}
+
+async function confirmDeleteSurvey(): Promise<void> {
+  const target = pendingSurvey.value
+  if (target === null) {
+    return
+  }
+  surveyDeleting.value = true
+  surveyDeleteError.value = ''
+  try {
+    await deleteBirdSurvey(target.id)
+    surveyDeleteDialog.value?.close()
+    savedMessage.value = `已删除 ${target.survey_date} 的鸟调记录`
+    if (detail.value !== null && detail.value.id === target.id) {
+      closeDetail()
+    }
+    await loadSurveys()
+  } catch (e) {
+    surveyDeleteError.value = errorMessage(e)
+  } finally {
+    surveyDeleting.value = false
+  }
+}
+
+const surveyRecordDeleteDialog = ref<InstanceType<typeof ConfirmDialog> | null>(null)
+const surveyRecordDeleteError = ref('')
+const surveyRecordDeleting = ref(false)
+const pendingSurveyRecord = ref<BirdSurveyRecord | null>(null)
+
+function openDeleteSurveyRecord(record: BirdSurveyRecord): void {
+  savedMessage.value = ''
+  surveyRecordDeleteError.value = ''
+  pendingSurveyRecord.value = record
+  surveyRecordDeleteDialog.value?.open()
+}
+
+async function confirmDeleteSurveyRecord(): Promise<void> {
+  const target = pendingSurveyRecord.value
+  if (target === null || detail.value === null) {
+    return
+  }
+  surveyRecordDeleting.value = true
+  surveyRecordDeleteError.value = ''
+  try {
+    await deleteSurveyRecord(detail.value.id, target.id)
+    surveyRecordDeleteDialog.value?.close()
+    savedMessage.value = `已删除鸟种「${target.chinese_name}」`
+    await refreshDetail()
+  } catch (e) {
+    surveyRecordDeleteError.value = errorMessage(e)
+  } finally {
+    surveyRecordDeleting.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     birdClassId.value = await findTaxonId('class', BIRD_CLASS_SCIENTIFIC_NAME)
@@ -581,7 +1170,7 @@ onMounted(async () => {
   } catch (e) {
     speciesError.value = errorMessage(e)
   }
-  await Promise.all([loadSpeciesRecords(), loadRecords(), loadBirdOptions()])
+  await Promise.all([loadSpeciesRecords(), loadRecords(), loadBirdOptions(), loadSurveys()])
 })
 </script>
 
@@ -592,7 +1181,8 @@ onMounted(async () => {
         <div>
           <h2>鸟类调查</h2>
           <p class="hint">
-            燕园鸟类调查的资料。鸟种清单是鸟纲下的名录记录，重要记录来自《北京大学燕园校区鸟类记录整理.docx》。
+            燕园鸟类调查的资料。鸟种清单是鸟纲下的名录记录，重要记录来自《北京大学燕园校区鸟类记录整理.docx》，鸟调记录来自各次样线调查的
+            GPX。
           </p>
         </div>
       </div>
@@ -754,7 +1344,88 @@ onMounted(async () => {
 
       <!-- 鸟调记录 -->
       <template v-else>
-        <p class="muted">鸟调记录还没有开始录入。</p>
+        <form class="search-bar" @submit.prevent="searchSurveys">
+          <input v-model="surveysKeyword" placeholder="按鸟种搜索…" />
+          <input v-model="surveysFrom" class="date" type="date" aria-label="起始日期" />
+          <span class="muted">至</span>
+          <input v-model="surveysTo" class="date" type="date" aria-label="结束日期" />
+          <button type="submit">搜索</button>
+          <button
+            v-if="surveysFiltered"
+            class="secondary"
+            type="button"
+            @click="clearSurveysSearch"
+          >
+            清除
+          </button>
+          <button v-if="canManage" type="button" @click="openImport">导入 GPX</button>
+          <button v-if="canManage" class="secondary" type="button" @click="openCreateSurvey">
+            新增鸟调
+          </button>
+        </form>
+
+        <p class="hint">
+          每行是一次鸟调，按日期从新到旧排列；「鸟种数」按明细里的不同鸟种现算。
+          搜索按明细里的鸟种名匹配，点日期可以看详细的鸟种记录。
+        </p>
+
+        <p v-if="surveysError" class="alert error">{{ surveysError }}</p>
+        <p v-if="surveysLoading" class="muted">加载中…</p>
+
+        <div v-else class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>领队</th>
+                <th>天气</th>
+                <th>鸟种数</th>
+                <th>备注</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="survey in surveys" :key="survey.id">
+                <td class="nowrap">
+                  <button class="name-link" type="button" @click="openDetail(survey)">
+                    {{ survey.survey_date }}
+                  </button>
+                </td>
+                <td class="muted nowrap">{{ survey.leader ?? '—' }}</td>
+                <td class="muted nowrap">{{ survey.weather ?? '—' }}</td>
+                <td class="muted mono">{{ survey.species_count }}</td>
+                <td class="muted">
+                  <NoteText :note="survey.note" clip />
+                </td>
+                <td class="actions-cell">
+                  <button class="secondary" type="button" @click="openDetail(survey)">详情</button>
+                  <template v-if="canManage">
+                    <button class="secondary" type="button" @click="openEditSurvey(survey)">
+                      编辑
+                    </button>
+                    <button class="danger" type="button" @click="openDeleteSurvey(survey)">
+                      删除
+                    </button>
+                  </template>
+                </td>
+              </tr>
+              <tr v-if="surveys.length === 0">
+                <td :colspan="6" class="muted">
+                  <span v-if="surveysFiltered">没有符合当前条件的鸟调记录</span>
+                  <span v-else>还没有鸟调记录</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <ListPager
+          :total="surveysTotal"
+          :page-size="PAGE_SIZE"
+          :page="surveysOffset / PAGE_SIZE + 1"
+          :disabled="surveysLoading"
+          @change="goToSurveysPage"
+        />
       </template>
     </section>
   </div>
@@ -896,4 +1567,374 @@ onMounted(async () => {
   <!-- 点学名 / 中文名打开的重要记录卡片：只看分类阶元与记录信息。
        照片在记录的编辑弹窗里挂，卡片上不再放「上传照片」/「新增记录」入口。 -->
   <SpeciesCard ref="card" :on-edit-record="editBirdRecordFromCard" hide-upload-photo />
+
+  <!-- 导入鸟调 GPX -->
+  <dialog ref="importDialog" class="modal modal-wide" @click.self="closeImport">
+    <form @submit.prevent="submitImport">
+      <h2>导入鸟调 GPX</h2>
+      <p v-if="importForm.error" class="alert error">{{ importForm.error }}</p>
+      <p v-if="importForm.result" class="alert success">{{ importForm.result }}</p>
+
+      <div class="field">
+        <label for="import-file">GPX 文件</label>
+        <input
+          id="import-file"
+          type="file"
+          accept=".gpx,application/gpx+xml"
+          @change="onImportFileChange"
+        />
+        <span class="hint">文件名形如 20180522北大鸟调多云转晴.gpx 时会自动填好日期和天气</span>
+      </div>
+
+      <div class="field">
+        <label for="import-leader">领队</label>
+        <input
+          id="import-leader"
+          v-model="importForm.leader"
+          :maxlength="SURVEY_LEADER_MAX_CHARS"
+        />
+      </div>
+
+      <div class="field">
+        <label for="import-date">日期</label>
+        <input id="import-date" v-model="importForm.surveyDate" class="date" type="date" />
+        <span class="hint">留空时用 GPX 里最早的观察时间</span>
+      </div>
+
+      <div class="field">
+        <label for="import-weather">天气</label>
+        <input
+          id="import-weather"
+          v-model="importForm.weather"
+          :maxlength="SURVEY_WEATHER_MAX_CHARS"
+        />
+      </div>
+
+      <div class="field">
+        <label for="import-note">备注</label>
+        <textarea id="import-note" v-model="importForm.note" rows="2"></textarea>
+      </div>
+
+      <div class="actions">
+        <button type="submit" :disabled="importForm.importing">
+          {{ importForm.importing ? '导入中…' : '导入' }}
+        </button>
+        <button
+          class="secondary"
+          type="button"
+          :disabled="importForm.importing"
+          @click="closeImport"
+        >
+          {{ importForm.result === '' ? '取消' : '关闭' }}
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 鸟调明细：表头 + 逐条鸟种 -->
+  <dialog ref="detailDialog" class="modal modal-wide" @click.self="closeDetail">
+    <template v-if="detail !== null">
+      <div class="log-head">
+        <h2>{{ detail.survey_date }} 鸟调记录</h2>
+        <div v-if="canManage" class="head-actions">
+          <button class="secondary" type="button" @click="openEditSurvey(detail)">修改</button>
+        </div>
+      </div>
+
+      <div class="info-list">
+        <div class="info-row">
+          <span class="info-label">领队</span>
+          <span>{{ detail.leader ?? '—' }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">天气</span>
+          <span>{{ detail.weather ?? '—' }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">鸟种数</span>
+          <span>{{ detail.species_count }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">来源</span>
+          <span>{{ detail.source ?? '—' }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">备注</span>
+          <span>{{ detail.note ?? '—' }}</span>
+        </div>
+      </div>
+
+      <div class="head-actions">
+        <span class="muted">共 {{ detail.records.length }} 条观察</span>
+        <button v-if="canManage" type="button" @click="openCreateSurveyRecord">添加鸟种</button>
+      </div>
+
+      <p v-if="detailError" class="alert error">{{ detailError }}</p>
+
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>鸟种</th>
+              <th>学名</th>
+              <th>数量</th>
+              <th></th>
+              <th v-if="canManage"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 「详情」按一下才展开时间 / 位置 / 备注 -->
+            <template v-for="record in detail.records" :key="record.id">
+              <tr class="record-row">
+                <td class="nowrap">
+                  {{ record.chinese_name }}
+                  <span
+                    v-if="record.taxon_id === null"
+                    class="tag"
+                    title="名录里没有这个名字，只保留原名"
+                    >未匹配</span
+                  >
+                </td>
+                <td class="muted nowrap">{{ record.scientific_name ?? '—' }}</td>
+                <td class="muted mono">{{ record.quantity ?? '—' }}</td>
+                <td class="nowrap">
+                  <button
+                    class="tag tag-button"
+                    type="button"
+                    :aria-expanded="expandedRecordIds.has(record.id)"
+                    @click="toggleRecordDetails(record.id)"
+                  >
+                    {{ expandedRecordIds.has(record.id) ? '收起' : '详情' }}
+                  </button>
+                </td>
+                <td v-if="canManage" class="actions-cell">
+                  <button class="secondary" type="button" @click="openEditSurveyRecord(record)">
+                    编辑
+                  </button>
+                  <button class="danger" type="button" @click="openDeleteSurveyRecord(record)">
+                    删除
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="expandedRecordIds.has(record.id)" class="record-meta-row">
+                <td :colspan="canManage ? 5 : 4">
+                  <div class="record-meta">
+                    <span>
+                      <span class="muted">时间</span>
+                      {{ record.observed_at === null ? '—' : formatTimestamp(record.observed_at) }}
+                    </span>
+                    <span>
+                      <span class="muted">位置</span>
+                      {{ formatCoordinates(record) }}
+                    </span>
+                    <span
+                      v-if="record.note !== null && record.note.trim() !== ''"
+                      class="record-meta-note note-full"
+                    >
+                      <span class="muted">备注</span>
+                      <NoteText :note="record.note" />
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <tr v-if="detail.records.length === 0">
+              <td :colspan="canManage ? 5 : 4" class="muted">这次鸟调还没有鸟种记录</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+    <p v-else-if="detailLoading" class="muted">加载中…</p>
+    <p v-else-if="detailError" class="alert error">{{ detailError }}</p>
+
+    <div class="actions">
+      <button class="secondary" type="button" @click="closeDetail">关闭</button>
+    </div>
+  </dialog>
+
+  <!-- 新增 / 编辑鸟调表头 -->
+  <dialog ref="surveyDialog" class="modal" @click.self="closeSurveyDialog">
+    <form @submit.prevent="submitSurvey">
+      <h2>{{ surveyForm.id === null ? '新增鸟调' : '编辑鸟调' }}</h2>
+      <p v-if="surveyForm.error" class="alert error">{{ surveyForm.error }}</p>
+
+      <div class="field">
+        <label for="survey-date">日期</label>
+        <input id="survey-date" v-model="surveyForm.surveyDate" class="date" type="date" />
+      </div>
+      <div class="field">
+        <label for="survey-leader">领队</label>
+        <input
+          id="survey-leader"
+          v-model="surveyForm.leader"
+          :maxlength="SURVEY_LEADER_MAX_CHARS"
+        />
+      </div>
+      <div class="field">
+        <label for="survey-weather">天气</label>
+        <input
+          id="survey-weather"
+          v-model="surveyForm.weather"
+          :maxlength="SURVEY_WEATHER_MAX_CHARS"
+        />
+      </div>
+      <div class="field">
+        <label for="survey-note">备注</label>
+        <textarea id="survey-note" v-model="surveyForm.note" rows="2"></textarea>
+      </div>
+
+      <div class="actions">
+        <button type="submit" :disabled="surveyForm.submitting">
+          {{ surveyForm.submitting ? '保存中…' : '保存' }}
+        </button>
+        <button
+          class="secondary"
+          type="button"
+          :disabled="surveyForm.submitting"
+          @click="closeSurveyDialog"
+        >
+          取消
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 新增 / 编辑鸟种明细 -->
+  <dialog ref="surveyRecordDialog" class="modal modal-wide" @click.self="closeSurveyRecordDialog">
+    <form @submit.prevent="submitSurveyRecord">
+      <h2>{{ surveyRecordForm.id === null ? '添加鸟种' : '编辑鸟种' }}</h2>
+      <p v-if="surveyRecordForm.error" class="alert error">{{ surveyRecordForm.error }}</p>
+      <p v-if="birdOptionsError" class="alert error">{{ birdOptionsError }}</p>
+
+      <div class="field">
+        <label for="survey-record-bird-filter">鸟种</label>
+        <input
+          id="survey-record-bird-filter"
+          v-model="surveyRecordBirdKeyword"
+          placeholder="先输入中文名或学名筛选…"
+        />
+        <select
+          id="survey-record-bird"
+          v-model="surveyRecordForm.taxonId"
+          @change="pickSurveyRecordBird"
+        >
+          <option :value="MANUAL_TAXON">— 未匹配（自己填名称）—</option>
+          <option
+            v-for="bird in filteredSurveyRecordBirds"
+            :key="bird.taxon_id"
+            :value="bird.taxon_id"
+          >
+            {{ taxonLabel(bird) }}
+          </option>
+        </select>
+        <span class="hint"
+          >选择鸟种后学名 / 中文名自动带出；名录里没有的名字选「未匹配」并手填</span
+        >
+      </div>
+
+      <template v-if="surveyRecordForm.taxonId === MANUAL_TAXON">
+        <div class="field">
+          <label for="survey-record-name">中文名</label>
+          <input
+            id="survey-record-name"
+            v-model="surveyRecordForm.chineseName"
+            :maxlength="SURVEY_RECORD_NAME_MAX_CHARS"
+          />
+        </div>
+        <div class="field">
+          <label for="survey-record-sci">学名</label>
+          <input
+            id="survey-record-sci"
+            v-model="surveyRecordForm.scientificName"
+            :maxlength="SURVEY_RECORD_NAME_MAX_CHARS"
+          />
+          <span class="hint">未匹配时学名可以留空</span>
+        </div>
+      </template>
+
+      <div class="field">
+        <label for="survey-record-quantity">数量</label>
+        <input
+          id="survey-record-quantity"
+          v-model="surveyRecordForm.quantity"
+          type="number"
+          min="0"
+          step="1"
+        />
+      </div>
+      <div class="field">
+        <label for="survey-record-time">时间</label>
+        <input
+          id="survey-record-time"
+          v-model="surveyRecordForm.observedAt"
+          type="datetime-local"
+        />
+      </div>
+      <div class="field">
+        <label for="survey-record-latitude">纬度</label>
+        <input
+          id="survey-record-latitude"
+          v-model="surveyRecordForm.latitude"
+          type="number"
+          step="any"
+        />
+      </div>
+      <div class="field">
+        <label for="survey-record-longitude">经度</label>
+        <input
+          id="survey-record-longitude"
+          v-model="surveyRecordForm.longitude"
+          type="number"
+          step="any"
+        />
+      </div>
+      <div class="field">
+        <label for="survey-record-note">备注</label>
+        <textarea id="survey-record-note" v-model="surveyRecordForm.note" rows="2"></textarea>
+      </div>
+
+      <div class="actions">
+        <button type="submit" :disabled="surveyRecordForm.submitting">
+          {{ surveyRecordForm.submitting ? '保存中…' : '保存' }}
+        </button>
+        <button
+          class="secondary"
+          type="button"
+          :disabled="surveyRecordForm.submitting"
+          @click="closeSurveyRecordDialog"
+        >
+          取消
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <ConfirmDialog
+    ref="surveyDeleteDialog"
+    title="删除鸟调记录"
+    :message="
+      pendingSurvey === null
+        ? ''
+        : `确定删除 ${pendingSurvey.survey_date} 的鸟调记录？该次调查的全部鸟种明细会一起删掉，此操作不可撤销。`
+    "
+    :busy="surveyDeleting"
+    :error="surveyDeleteError"
+    @confirm="confirmDeleteSurvey"
+    @cancel="surveyDeleteError = ''"
+  />
+
+  <ConfirmDialog
+    ref="surveyRecordDeleteDialog"
+    title="删除鸟种明细"
+    :message="
+      pendingSurveyRecord === null
+        ? ''
+        : `确定删除「${pendingSurveyRecord.chinese_name}」这条记录？此操作不可撤销。`
+    "
+    :busy="surveyRecordDeleting"
+    :error="surveyRecordDeleteError"
+    @confirm="confirmDeleteSurveyRecord"
+    @cancel="surveyRecordDeleteError = ''"
+  />
 </template>

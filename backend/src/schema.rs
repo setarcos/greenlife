@@ -31,6 +31,41 @@ diesel::table! {
 }
 
 diesel::table! {
+    bird_survey_records (id) {
+        id -> Uuid,
+        survey_id -> Uuid,
+        taxon_id -> Nullable<Uuid>,
+        #[max_length = 200]
+        scientific_name -> Nullable<Varchar>,
+        #[max_length = 200]
+        chinese_name -> Varchar,
+        quantity -> Nullable<Int4>,
+        observed_at -> Nullable<Timestamp>,
+        latitude -> Nullable<Float8>,
+        longitude -> Nullable<Float8>,
+        note -> Nullable<Text>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    bird_surveys (id) {
+        id -> Uuid,
+        survey_date -> Date,
+        #[max_length = 200]
+        leader -> Nullable<Varchar>,
+        #[max_length = 100]
+        weather -> Nullable<Varchar>,
+        note -> Nullable<Text>,
+        #[max_length = 255]
+        source -> Nullable<Varchar>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     maintenance_logs (id) {
         id -> Uuid,
         list_id -> Nullable<Uuid>,
@@ -144,6 +179,8 @@ diesel::table! {
 
 diesel::joinable!(bird_records -> species_photos (photo_id));
 diesel::joinable!(bird_records -> taxa (taxon_id));
+diesel::joinable!(bird_survey_records -> bird_surveys (survey_id));
+diesel::joinable!(bird_survey_records -> taxa (taxon_id));
 diesel::joinable!(maintenance_logs -> species_lists (list_id));
 diesel::joinable!(species_photos -> taxa (taxon_id));
 diesel::joinable!(species_records -> species_lists (list_id));
@@ -151,6 +188,8 @@ diesel::joinable!(species_records -> taxa (taxon_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     bird_records,
+    bird_survey_records,
+    bird_surveys,
     maintenance_logs,
     species_lists,
     species_photos,

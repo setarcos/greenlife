@@ -374,7 +374,7 @@ struct IdRow {
 }
 
 /// 分类节点的所有后代 id（含自身），递归 CTE 一次查完。
-fn descendant_taxon_ids(conn: &mut DbConn, root: Uuid) -> Result<Vec<Uuid>, ServiceError> {
+pub(crate) fn descendant_taxon_ids(conn: &mut DbConn, root: Uuid) -> Result<Vec<Uuid>, ServiceError> {
     diesel::sql_query(
         "WITH RECURSIVE subtree(id) AS ( \
              SELECT id FROM taxa WHERE id = $1 \
