@@ -669,6 +669,22 @@ function formatCoordinates(record: BirdSurveyRecord): string {
   return `${record.latitude.toFixed(5)}, ${record.longitude.toFixed(5)}`
 }
 
+/// 「位置」后面的地图链接：高德 URI API，`position` 是「经度,纬度」。
+/// GPX 里是 GPS 原始坐标（WGS-84），要靠 `coordinate=wgs84` 让高德自己纠偏。
+function amapUrl(record: BirdSurveyRecord): string | null {
+  if (record.latitude === null || record.longitude === null) {
+    return null
+  }
+  const position = `${record.longitude},${record.latitude}`
+  const params = new URLSearchParams({
+    position,
+    coordinate: 'wgs84',
+    name: record.chinese_name,
+    src: 'greenlife',
+  })
+  return `https://uri.amap.com/marker?${params.toString()}`
+}
+
 // --- 明细弹窗 ---
 
 const detailDialog = ref<HTMLDialogElement | null>(null)
@@ -1726,6 +1742,14 @@ onMounted(async () => {
                     <span>
                       <span class="muted">位置</span>
                       {{ formatCoordinates(record) }}
+                      <a
+                        v-if="amapUrl(record) !== null"
+                        class="map-link"
+                        :href="amapUrl(record) ?? undefined"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        >地图</a
+                      >
                     </span>
                     <span
                       v-if="record.note !== null && record.note.trim() !== ''"
