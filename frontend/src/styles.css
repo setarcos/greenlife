@@ -427,6 +427,13 @@ button.link:hover:not(:disabled) {
   margin-left: 6px;
 }
 
+/* 表格里的操作按钮紧凑一些：减小上下 padding 与行高，
+   别让按钮把表格行撑得比纯文字行高 */
+.table td.actions-cell button {
+  padding: 2px 10px;
+  line-height: 1.2;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
