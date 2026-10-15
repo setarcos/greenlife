@@ -122,7 +122,8 @@ const createForm = reactive({
   parentId: null as string | null,
   parentRank: null as TaxonomyRank | null,
   parentLabel: '（根节点）',
-  rank: 'kingdom' as TaxonomyRank,
+  /// 新增根节点时的默认阶元：树根通常就是门（见 `RANKS`）。
+  rank: 'phylum' as TaxonomyRank,
   scientificName: '',
   chineseName: '',
   submitting: false,

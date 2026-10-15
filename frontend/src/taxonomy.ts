@@ -2,11 +2,14 @@
 ///
 /// 与 `backend/src/taxonomy_models.rs` 一一对应，改后端记得同步这里。
 
-export type TaxonomyRank = 'kingdom' | 'phylum' | 'class' | 'order' | 'family' | 'genus' | 'species'
+export type TaxonomyRank = 'phylum' | 'class' | 'order' | 'family' | 'genus' | 'species'
 
-/// 顺序即深度：界 > 门 > 纲 > 目 > 科 > 属 > 种（后端 `TaxonomyRank::ALL`）。
+/// 顺序即深度：门 > 纲 > 目 > 科 > 属 > 种。
+///
+/// 不含「界」：分类树的根就是门（允许跳级，有些类群直接从纲/目起），
+/// 所以类群选择器、卡片的分类阶元都从门开始，没有界这一级。
+/// （后端 `taxonomy_rank` 枚举里还留着 `kingdom`，但本项目不用。）
 export const RANKS: readonly TaxonomyRank[] = [
-  'kingdom',
   'phylum',
   'class',
   'order',
@@ -16,7 +19,6 @@ export const RANKS: readonly TaxonomyRank[] = [
 ]
 
 const RANK_LABELS: Record<TaxonomyRank, string> = {
-  kingdom: '界',
   phylum: '门',
   class: '纲',
   order: '目',
@@ -29,7 +31,7 @@ export function rankLabel(rank: TaxonomyRank): string {
   return RANK_LABELS[rank]
 }
 
-/// 1 最高（界），7 最低（种）。与后端 `TaxonomyRank::depth` 对齐。
+/// 1 最高（门），6 最低（种）。只用来比较两个阶元谁高谁低（`isStrictlyHigher`）。
 export function rankDepth(rank: TaxonomyRank): number {
   return RANKS.indexOf(rank) + 1
 }
