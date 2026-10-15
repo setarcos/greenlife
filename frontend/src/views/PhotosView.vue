@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { createPhoto, deletePhoto, listPhotos, updatePhoto } from '../api/photos'
 import { getTaxon } from '../api/taxonomy'
@@ -9,6 +9,7 @@ import ListPager from '../components/ListPager.vue'
 import NoteText from '../components/NoteText.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
 import { clampOffset } from '../pagination'
+import { pageOffset, queryPage, queryText, setPage, setText } from '../query'
 import {
   MAX_PHOTOS_PER_TAXON,
   RATING_OPTIONS,
@@ -29,6 +30,7 @@ const PAGE_SIZE = 12
 
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => auth.canManage)
 
 /// 从物种卡片进来时锁定这个物种；否则可以在上传框里自己选。
@@ -100,6 +102,7 @@ async function load(): Promise<void> {
     const clamped = clampOffset(offset.value, page.total, PAGE_SIZE)
     if (clamped !== offset.value) {
       offset.value = clamped
+      writeQuery()
       await load()
       return
     }
@@ -128,6 +131,7 @@ async function loadTaxon(): Promise<void> {
 async function search(): Promise<void> {
   appliedKeyword.value = keyword.value.trim()
   offset.value = 0
+  writeQuery()
   await load()
 }
 
@@ -135,11 +139,45 @@ async function clearSearch(): Promise<void> {
   keyword.value = ''
   appliedKeyword.value = ''
   offset.value = 0
+  writeQuery()
   await load()
 }
 
 async function goToPage(page: number): Promise<void> {
   offset.value = (page - 1) * PAGE_SIZE
+  writeQuery()
+  await load()
+}
+
+// ==========================================================================
+// 视角状态 ↔ 地址栏
+// ==========================================================================
+
+/// 翻到第几页、搜了什么写进地址栏：从这里的照片跳去别的页面再按后退、刷新页面、
+/// 把链接发给别人，都能回到同一屏。`taxon` / `upload` 是入口参数，原样留着。
+function writeQuery(): void {
+  const query: LocationQueryRaw = { ...route.query }
+  // `page` / `q` 由当前状态重新算，先摘掉旧的（否则「清除」之后旧搜索词会留在
+  // 地址栏里，下次后退回来又被当成筛选条件）；`taxon` / `upload` 是入口参数，留着。
+  delete query.page
+  delete query.q
+  setPage(query, 'page', offset.value, PAGE_SIZE)
+  setText(query, 'q', appliedKeyword.value)
+  // replace：调一次筛选不该在历史里多留一条。
+  void router.replace({ query })
+}
+
+/// 从地址栏读回页码 / 搜索词；返回是否和当前状态不同（我们自己 replace 出去的
+/// query 读回来是一样的，那种情况就不用重新请求）。
+async function applyRouteQuery(): Promise<void> {
+  const nextOffset = pageOffset(queryPage(route.query.page), PAGE_SIZE)
+  const nextKeyword = queryText(route.query.q)
+  if (nextOffset === offset.value && nextKeyword === appliedKeyword.value) {
+    return
+  }
+  offset.value = nextOffset
+  appliedKeyword.value = nextKeyword
+  keyword.value = nextKeyword
   await load()
 }
 
@@ -229,6 +267,7 @@ async function submitCreate(): Promise<void> {
     closeCreate()
     savedMessage.value = '照片已上传'
     offset.value = 0
+    writeQuery()
     await load()
   } catch (e) {
     createForm.error = errorMessage(e)
@@ -337,6 +376,12 @@ function applyPickedTaxon(value: string | null): void {
 }
 
 onMounted(async () => {
+  // 先把地址栏里的页码 / 搜索词读回来，再按它去请求数据。
+  const page = queryPage(route.query.page)
+  const searchWord = queryText(route.query.q)
+  offset.value = pageOffset(page, PAGE_SIZE)
+  appliedKeyword.value = searchWord
+  keyword.value = searchWord
   await Promise.all([loadTaxon(), load()])
   if (route.query.upload === '1' && canManage.value) {
     openCreate()
@@ -348,8 +393,16 @@ watch(lockedTaxonId, async () => {
   offset.value = 0
   keyword.value = ''
   appliedKeyword.value = ''
+  writeQuery()
   await Promise.all([loadTaxon(), load()])
 })
+
+// 地址栏变了但组件没重建（浏览器前进后退）时跟着变。放在 lockedTaxonId 后面：
+// 换物种时上面那个先重置页码和搜索词，这里读到的一样，就不用再发一次请求。
+watch(
+  () => route.query,
+  () => void applyRouteQuery(),
+)
 </script>
 
 <template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import {
   createBirdRecord,
   deleteBirdRecord,
@@ -31,6 +31,7 @@ import { BIRD_CLASS_SCIENTIFIC_NAME, type BirdRecord } from '../birds'
 import type { BirdSurvey, BirdSurveyDetail, BirdSurveyRecord } from '../birdSurveys'
 import { clampOffset } from '../pagination'
 import { MAX_PHOTOS_PER_TAXON, validatePhotoFile, type SpeciesPhoto } from '../photos'
+import { pageOffset, queryPage, queryText, setPage, setText } from '../query'
 import { taxonLabel, type SpeciesRecord } from '../taxonomy'
 import { formatTimestamp } from '../types'
 import {
@@ -51,6 +52,7 @@ import {
 /// - 重要记录：`bird_records` 表，docx 导入 + STAFF 手工补录。
 /// - 鸟调记录：`bird_surveys` / `bird_survey_records`，GPX 导入 + 手工维护。
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 const canManage = computed(() => auth.canManage)
 
@@ -61,6 +63,12 @@ const TABS = [
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 const tab = ref<TabKey>('species')
+
+/// 切标签页。三个标签的数据在挂载时都拉过，切回来不用重新请求。
+function selectTab(key: TabKey): void {
+  tab.value = key
+  writeQuery()
+}
 
 const PAGE_SIZE = 50
 
@@ -143,6 +151,15 @@ async function loadSpeciesRecords(): Promise<void> {
       limit: PAGE_SIZE,
       offset: speciesOffset.value,
     })
+    // 页码是从地址栏来的，可能已经越过末页（链接是别人发的 / 记录被删了），
+    // 退回去重拉一次。
+    const clamped = clampOffset(speciesOffset.value, page.total, PAGE_SIZE)
+    if (clamped !== speciesOffset.value) {
+      speciesOffset.value = clamped
+      writeQuery()
+      await loadSpeciesRecords()
+      return
+    }
     speciesRecords.value = page.items
     speciesTotal.value = page.total
   } catch (e) {
@@ -155,6 +172,7 @@ async function loadSpeciesRecords(): Promise<void> {
 async function searchSpecies(): Promise<void> {
   speciesAppliedKeyword.value = speciesKeyword.value.trim()
   speciesOffset.value = 0
+  writeQuery()
   await loadSpeciesRecords()
 }
 
@@ -162,11 +180,13 @@ async function clearSpeciesSearch(): Promise<void> {
   speciesKeyword.value = ''
   speciesAppliedKeyword.value = ''
   speciesOffset.value = 0
+  writeQuery()
   await loadSpeciesRecords()
 }
 
 async function goToSpeciesPage(page: number): Promise<void> {
   speciesOffset.value = (page - 1) * PAGE_SIZE
+  writeQuery()
   await loadSpeciesRecords()
 }
 
@@ -210,6 +230,7 @@ async function loadRecords(): Promise<void> {
     const clamped = clampOffset(recordsOffset.value, page.total, PAGE_SIZE)
     if (clamped !== recordsOffset.value) {
       recordsOffset.value = clamped
+      writeQuery()
       await loadRecords()
       return
     }
@@ -227,6 +248,7 @@ async function searchRecords(): Promise<void> {
   recordsAppliedFrom.value = recordsFrom.value
   recordsAppliedTo.value = recordsTo.value
   recordsOffset.value = 0
+  writeQuery()
   await loadRecords()
 }
 
@@ -238,6 +260,7 @@ async function clearRecordsSearch(): Promise<void> {
   recordsAppliedFrom.value = ''
   recordsAppliedTo.value = ''
   recordsOffset.value = 0
+  writeQuery()
   await loadRecords()
 }
 
@@ -251,6 +274,7 @@ const recordsFiltered = computed(
 
 async function goToRecordsPage(page: number): Promise<void> {
   recordsOffset.value = (page - 1) * PAGE_SIZE
+  writeQuery()
   await loadRecords()
 }
 
@@ -618,6 +642,7 @@ async function loadSurveys(): Promise<void> {
     const clamped = clampOffset(surveysOffset.value, page.total, PAGE_SIZE)
     if (clamped !== surveysOffset.value) {
       surveysOffset.value = clamped
+      writeQuery()
       await loadSurveys()
       return
     }
@@ -635,6 +660,7 @@ async function searchSurveys(): Promise<void> {
   surveysAppliedFrom.value = surveysFrom.value
   surveysAppliedTo.value = surveysTo.value
   surveysOffset.value = 0
+  writeQuery()
   await loadSurveys()
 }
 
@@ -646,6 +672,7 @@ async function clearSurveysSearch(): Promise<void> {
   surveysAppliedFrom.value = ''
   surveysAppliedTo.value = ''
   surveysOffset.value = 0
+  writeQuery()
   await loadSurveys()
 }
 
@@ -658,6 +685,7 @@ const surveysFiltered = computed(
 
 async function goToSurveysPage(page: number): Promise<void> {
   surveysOffset.value = (page - 1) * PAGE_SIZE
+  writeQuery()
   await loadSurveys()
 }
 
@@ -1177,7 +1205,115 @@ async function confirmDeleteSurveyRecord(): Promise<void> {
   }
 }
 
+// ==========================================================================
+// 视角状态 ↔ 地址栏
+// ==========================================================================
+
+/// 当前在哪个标签页、翻到第几页、筛选了什么，全部写进地址栏：从这里的物种卡片跳到
+/// 「物种照片」再按后退、刷新页面、把链接发给别人，都能回到同一屏。三个标签各占一套
+/// 参数（`s_` / `r_` / `v_` 前缀），互不干扰；只写非默认值，所以没筛选时链接还是
+/// 干净的 `/birds`。
+function writeQuery(): void {
+  const query: LocationQueryRaw = {}
+  if (tab.value !== 'species') {
+    query.tab = tab.value
+  }
+  setPage(query, 's_page', speciesOffset.value, PAGE_SIZE)
+  setText(query, 's_q', speciesAppliedKeyword.value)
+  setPage(query, 'r_page', recordsOffset.value, PAGE_SIZE)
+  setText(query, 'r_q', recordsAppliedKeyword.value)
+  setText(query, 'r_from', recordsAppliedFrom.value)
+  setText(query, 'r_to', recordsAppliedTo.value)
+  setPage(query, 'v_page', surveysOffset.value, PAGE_SIZE)
+  setText(query, 'v_q', surveysAppliedKeyword.value)
+  setText(query, 'v_from', surveysAppliedFrom.value)
+  setText(query, 'v_to', surveysAppliedTo.value)
+  // replace：调一次筛选不该在历史里多留一条。
+  void router.replace({ query })
+}
+
+/// 从地址栏读回视角状态，返回哪些标签的数据需要重拉。首次挂载、以及「路由变了但
+/// 组件没重建」（点顶栏的「鸟类调查」、浏览器前进后退）都走这里。
+/// 我们自己刚 replace 出去的 query 就是当前状态，读出来跟 ref 一样，所以这里不会
+/// 重复发请求。
+function applyRouteQuery(): TabKey[] {
+  const query = route.query
+  const changed: TabKey[] = []
+
+  const tabParam = queryText(query.tab)
+  tab.value = TABS.find((item) => item.key === tabParam)?.key ?? 'species'
+
+  const speciesPage = pageOffset(queryPage(query.s_page), PAGE_SIZE)
+  const speciesWord = queryText(query.s_q)
+  if (speciesPage !== speciesOffset.value || speciesWord !== speciesAppliedKeyword.value) {
+    speciesOffset.value = speciesPage
+    speciesAppliedKeyword.value = speciesWord
+    speciesKeyword.value = speciesWord
+    changed.push('species')
+  }
+
+  const recordsPage = pageOffset(queryPage(query.r_page), PAGE_SIZE)
+  const recordsWord = queryText(query.r_q)
+  const recordsStart = queryText(query.r_from)
+  const recordsEnd = queryText(query.r_to)
+  if (
+    recordsPage !== recordsOffset.value ||
+    recordsWord !== recordsAppliedKeyword.value ||
+    recordsStart !== recordsAppliedFrom.value ||
+    recordsEnd !== recordsAppliedTo.value
+  ) {
+    recordsOffset.value = recordsPage
+    recordsAppliedKeyword.value = recordsWord
+    recordsKeyword.value = recordsWord
+    recordsAppliedFrom.value = recordsStart
+    recordsFrom.value = recordsStart
+    recordsAppliedTo.value = recordsEnd
+    recordsTo.value = recordsEnd
+    changed.push('records')
+  }
+
+  const surveysPage = pageOffset(queryPage(query.v_page), PAGE_SIZE)
+  const surveysWord = queryText(query.v_q)
+  const surveysStart = queryText(query.v_from)
+  const surveysEnd = queryText(query.v_to)
+  if (
+    surveysPage !== surveysOffset.value ||
+    surveysWord !== surveysAppliedKeyword.value ||
+    surveysStart !== surveysAppliedFrom.value ||
+    surveysEnd !== surveysAppliedTo.value
+  ) {
+    surveysOffset.value = surveysPage
+    surveysAppliedKeyword.value = surveysWord
+    surveysKeyword.value = surveysWord
+    surveysAppliedFrom.value = surveysStart
+    surveysFrom.value = surveysStart
+    surveysAppliedTo.value = surveysEnd
+    surveysTo.value = surveysEnd
+    changed.push('survey')
+  }
+
+  return changed
+}
+
+/// 按地址栏重新对齐并重拉需要的数据。
+async function syncFromRoute(): Promise<void> {
+  const changed = applyRouteQuery()
+  const loads: Promise<void>[] = []
+  if (changed.includes('species')) {
+    loads.push(loadSpeciesRecords())
+  }
+  if (changed.includes('records')) {
+    loads.push(loadRecords())
+  }
+  if (changed.includes('survey')) {
+    loads.push(loadSurveys())
+  }
+  await Promise.all(loads)
+}
+
 onMounted(async () => {
+  // 先把地址栏里的标签页 / 页码 / 筛选词读回来，再按它去请求数据。
+  applyRouteQuery()
   try {
     birdClassId.value = await findTaxonId('class', BIRD_CLASS_SCIENTIFIC_NAME)
     if (birdClassId.value === null) {
@@ -1188,6 +1324,12 @@ onMounted(async () => {
   }
   await Promise.all([loadSpeciesRecords(), loadRecords(), loadBirdOptions(), loadSurveys()])
 })
+
+// 地址栏变了但组件没重建（点顶栏的「鸟类调查」、浏览器前进后退）时跟着变。
+watch(
+  () => route.query,
+  () => void syncFromRoute(),
+)
 </script>
 
 <template>
@@ -1210,7 +1352,7 @@ onMounted(async () => {
           class="tab"
           :class="{ active: tab === item.key }"
           type="button"
-          @click="tab = item.key"
+          @click="selectTab(item.key)"
         >
           {{ item.label }}
         </button>

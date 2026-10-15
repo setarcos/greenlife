@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { errorMessage } from '../api/http'
 import {
   createMaintenanceLog,
@@ -13,10 +14,13 @@ import ListPager from '../components/ListPager.vue'
 import { useAuthStore } from '../stores/auth'
 import type { MaintenanceLog } from '../maintenanceLogs'
 import { clampOffset } from '../pagination'
+import { pageOffset, queryPage, queryText, setPage, setText } from '../query'
 import type { SpeciesList } from '../taxonomy'
 import { AUTHOR_MAX_CHARS, ENTRY_DATE_MAX_CHARS, charCount } from '../validation'
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => auth.canManage)
 
 const PAGE_SIZE = 50
@@ -61,6 +65,7 @@ async function load(): Promise<void> {
     const clamped = clampOffset(offset.value, page.total, PAGE_SIZE)
     if (clamped !== offset.value) {
       offset.value = clamped
+      writeQuery()
       await load()
       return
     }
@@ -73,7 +78,40 @@ async function load(): Promise<void> {
   }
 }
 
+/// 筛的是哪份名录、翻到第几页、搜了什么写进地址栏：从别的页面按后退回来、刷新页面、
+/// 把链接发给别人，都能回到同一屏。只写非默认值，所以没筛选时链接还是干净的。
+function writeQuery(): void {
+  const query: LocationQueryRaw = {}
+  setText(query, 'list', filterListId.value)
+  setPage(query, 'page', offset.value, PAGE_SIZE)
+  setText(query, 'q', appliedKeyword.value)
+  // replace：调一次筛选不该在历史里多留一条。
+  void router.replace({ query })
+}
+
+/// 从地址栏读回筛选条件；返回是否和当前状态不同（我们自己 replace 出去的 query
+/// 读回来是一样的，那种情况就不用重新请求）。
+function applyRouteQuery(): boolean {
+  const nextList = queryText(route.query.list)
+  const nextKeyword = queryText(route.query.q)
+  const nextOffset = pageOffset(queryPage(route.query.page), PAGE_SIZE)
+  if (
+    nextList === filterListId.value &&
+    nextKeyword === appliedKeyword.value &&
+    nextOffset === offset.value
+  ) {
+    return false
+  }
+  filterListId.value = nextList
+  keyword.value = nextKeyword
+  appliedKeyword.value = nextKeyword
+  offset.value = nextOffset
+  return true
+}
+
 onMounted(async () => {
+  // 先把地址栏里的筛选条件读回来，再按它去请求数据。
+  applyRouteQuery()
   try {
     lists.value = await listSpeciesLists()
   } catch (e) {
@@ -82,9 +120,20 @@ onMounted(async () => {
   await load()
 })
 
+// 地址栏变了但组件没重建（点顶栏的「维护日志」、浏览器前进后退）时跟着变。
+watch(
+  () => route.query,
+  async () => {
+    if (applyRouteQuery()) {
+      await load()
+    }
+  },
+)
+
 async function search(): Promise<void> {
   appliedKeyword.value = keyword.value.trim()
   offset.value = 0
+  writeQuery()
   await load()
 }
 
@@ -92,16 +141,19 @@ async function clearSearch(): Promise<void> {
   keyword.value = ''
   appliedKeyword.value = ''
   offset.value = 0
+  writeQuery()
   await load()
 }
 
 async function filterChanged(): Promise<void> {
   offset.value = 0
+  writeQuery()
   await load()
 }
 
 async function goToPage(page: number): Promise<void> {
   offset.value = (page - 1) * PAGE_SIZE
+  writeQuery()
   await load()
 }
 

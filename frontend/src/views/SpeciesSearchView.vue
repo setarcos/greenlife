@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { listRecords, listSpeciesLists } from '../api/taxonomy'
 import ListPager from '../components/ListPager.vue'
@@ -8,6 +8,7 @@ import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
 import type { SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import { clampOffset } from '../pagination'
+import { pageOffset, queryPage, queryText, setPage, setText } from '../query'
 import type { SpeciesList, SpeciesRecord } from '../taxonomy'
 
 const PAGE_SIZE = 50
@@ -72,6 +73,7 @@ async function load(): Promise<void> {
     const clamped = clampOffset(offset.value, page.total, PAGE_SIZE)
     if (clamped !== offset.value) {
       offset.value = clamped
+      writeQuery()
       await load()
       return
     }
@@ -86,6 +88,8 @@ async function load(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 先把地址栏里的搜索条件读回来，再按它去请求数据。
+  applyRouteQueryState()
   try {
     lists.value = await listSpeciesLists()
   } catch (e) {
@@ -94,9 +98,72 @@ onMounted(async () => {
   await load()
 })
 
+// 地址栏变了但组件没重建（浏览器前进后退、点顶栏的「物种检索」）时跟着变。
+watch(
+  () => route.query,
+  async () => {
+    if (applyRouteQueryState()) {
+      await load()
+    }
+  },
+)
+
+// ==========================================================================
+// 视角状态 ↔ 地址栏
+// ==========================================================================
+
+/// 搜索条件（名录 / 类群 / 关键字 / 页码）写进地址栏：从结果的卡片跳到别的页面再按
+/// 后退、刷新页面、把链接发给别人，都能回到同一屏。只写非默认值，所以没筛选时链接
+/// 还是干净的 `/search`。
+/// 写在搜索 / 重置 / 翻页时，而不是下拉框一变就写：地址栏里存的始终是「出这一屏结果
+/// 的那套条件」。
+function writeQuery(): void {
+  const query: LocationQueryRaw = {}
+  setText(query, 'list', listId.value)
+  setText(query, 'taxon', taxonId.value ?? '')
+  if (taxonId.value !== null && !descendants.value) {
+    query.descendants = '0'
+  }
+  setText(query, 'q', appliedKeyword.value)
+  setPage(query, 'page', offset.value, PAGE_SIZE)
+  // replace：调一次筛选不该在历史里多留一条。
+  void router.replace({ query })
+}
+
+/// 从地址栏读回搜索条件；返回是否和当前状态不同（我们自己 replace 出去的 query
+/// 读回来是一样的，那种情况就不用重新请求）。
+function applyRouteQueryState(): boolean {
+  const query = route.query
+  const nextList = queryText(query.list)
+  const nextTaxon = queryText(query.taxon)
+  const nextDescendants = queryText(query.descendants) !== '0'
+  const nextKeyword = queryText(query.q)
+  const nextOffset = pageOffset(queryPage(query.page), PAGE_SIZE)
+  if (
+    nextList === listId.value &&
+    nextTaxon === (taxonId.value ?? '') &&
+    nextDescendants === descendants.value &&
+    nextKeyword === appliedKeyword.value &&
+    nextOffset === offset.value
+  ) {
+    return false
+  }
+  listId.value = nextList
+  taxonId.value = nextTaxon === '' ? null : nextTaxon
+  descendants.value = nextDescendants
+  keyword.value = nextKeyword
+  appliedKeyword.value = nextKeyword
+  offset.value = nextOffset
+  // 类群选择器是内部持有状态的组件，重置它才能和地址栏对上。
+  pickerKey.value += 1
+  advancedOpen.value = nextTaxon !== ''
+  return true
+}
+
 async function search(): Promise<void> {
   appliedKeyword.value = keyword.value.trim()
   offset.value = 0
+  writeQuery()
   await load()
 }
 
@@ -109,11 +176,13 @@ async function reset(): Promise<void> {
   offset.value = 0
   pickerKey.value += 1
   advancedOpen.value = false
+  writeQuery()
   await load()
 }
 
 async function goToPage(page: number): Promise<void> {
   offset.value = (page - 1) * PAGE_SIZE
+  writeQuery()
   await load()
 }
 </script>

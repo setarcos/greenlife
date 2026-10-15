@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { getTaxon, getTree } from '../api/taxonomy'
 import { createTaxon, deleteTaxon, updateTaxon } from '../api/staffTaxonomy'
@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
 import TaxonTreeNode from '../components/TaxonTreeNode.vue'
 import { useAuthStore } from '../stores/auth'
+import { queryText } from '../query'
 import {
   RANKS,
   isStrictlyHigher,
@@ -24,6 +25,8 @@ import { TAXON_NAME_MAX_CHARS, charCount, validateField } from '../validation'
 type TaxonRef = Pick<Taxon, 'id' | 'parent_id' | 'rank' | 'scientific_name' | 'chinese_name'>
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => auth.canManage)
 
 const tree = ref<TaxonNode[]>([])
@@ -49,12 +52,26 @@ async function loadTree(): Promise<void> {
   }
 }
 
-onMounted(() => loadTree())
+onMounted(async () => {
+  // 地址栏里的 `?taxon=` 直接去取那个节点，不用等树加载完。
+  await Promise.all([loadTree(), syncFromRoute()])
+})
+
+// ==========================================================================
+// 选中的节点 ↔ 地址栏
+// ==========================================================================
+
+/// 选中的节点写进地址栏：点「查看物种」跳到物种检索、打开物种卡片看照片，之后按后
+/// 退回来还是停在这个节点上；刷新和分享链接也一样。
+function writeQuery(id: string | null): void {
+  void router.replace({ query: id === null ? {} : { taxon: id } })
+}
 
 async function selectNode(node: TaxonRef): Promise<void> {
   selected.value = node
   savedMessage.value = ''
   detailError.value = ''
+  writeQuery(node.id)
   detailLoading.value = true
   try {
     detail.value = await getTaxon(node.id)
@@ -65,6 +82,38 @@ async function selectNode(node: TaxonRef): Promise<void> {
     detailLoading.value = false
   }
 }
+
+/// 跟着地址栏变：`?taxon=` 指向的节点就选中它，没有就清空选中。
+/// 这个节点可能不在当前展开的树里（链接是别人发的），所以直接拿详情来当选中项。
+async function syncFromRoute(): Promise<void> {
+  const id = queryText(route.query.taxon)
+  if (id === '') {
+    if (selected.value !== null) {
+      selected.value = null
+      detail.value = null
+    }
+    return
+  }
+  if (selected.value?.id === id) {
+    return
+  }
+  try {
+    detail.value = await getTaxon(id)
+    selected.value = detail.value
+    detailError.value = ''
+  } catch {
+    // 节点已经不在了：地址栏里的这个 id 没用了。
+    detail.value = null
+    selected.value = null
+    writeQuery(null)
+  }
+}
+
+// 地址栏变了但组件没重建（浏览器前进后退、点顶栏的「分类树」）时跟着变。
+watch(
+  () => route.query,
+  () => void syncFromRoute(),
+)
 
 // --- 新增节点 ---
 
@@ -229,6 +278,7 @@ async function confirmDelete(): Promise<void> {
     if (selected.value?.id === target.id) {
       selected.value = null
       detail.value = null
+      writeQuery(null)
     }
     await loadTree()
   } catch (e) {

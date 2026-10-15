@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { getRecord, getSpeciesList, listRecords, listSpeciesLists } from '../api/taxonomy'
 import {
@@ -18,6 +18,7 @@ import type { SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
 import { useAuthStore } from '../stores/auth'
 import { clampOffset } from '../pagination'
+import { pageOffset, queryPage, queryText, setPage, setText } from '../query'
 import type { SpeciesList, SpeciesListDetail, SpeciesRecord } from '../taxonomy'
 import {
   LIST_NAME_MAX_CHARS,
@@ -97,6 +98,7 @@ async function loadRecords(): Promise<void> {
     const clamped = clampOffset(offset.value, page.total, PAGE_SIZE)
     if (clamped !== offset.value) {
       offset.value = clamped
+      writeQuery()
       await loadRecords()
       return
     }
@@ -109,31 +111,33 @@ async function loadRecords(): Promise<void> {
   }
 }
 
-/// 切名录时重置搜索和分页，否则会把上一份名录的关键字带过来。
+/// 点左边的名录：搜索和分页回到开头，否则会把上一份名录的关键字带过来。
 async function selectList(id: string): Promise<void> {
-  selectedId.value = id
   savedMessage.value = ''
-  keyword.value = ''
-  appliedKeyword.value = ''
-  offset.value = 0
-  await Promise.all([loadDetail(), loadRecords()])
+  await showList(id, 0, '')
 }
 
-/// `preferId` 用于新增/改名后把选中项停在刚操作的那一份上。
-async function loadLists(preferId?: string): Promise<void> {
+/// `preferId` 用于新增/改名后把选中项停在刚操作的那一份上；`view` 是从地址栏
+/// 恢复时的页码和搜索词，其它入口一律回到开头。
+async function loadLists(
+  preferId?: string,
+  view?: { offset: number; keyword: string },
+): Promise<void> {
   listsLoading.value = true
   listsError.value = ''
   try {
     lists.value = await listSpeciesLists()
     const wanted = preferId ?? selectedId.value
     if (wanted !== null && lists.value.some((list) => list.id === wanted)) {
-      await selectList(wanted)
+      await showList(wanted, view?.offset ?? 0, view?.keyword ?? '')
     } else if (lists.value.length > 0) {
-      await selectList(lists.value[0].id)
+      await showList(lists.value[0].id, 0, '')
     } else {
       selectedId.value = null
       detail.value = null
       records.value = []
+      // 一份名录都不剩（或者选的那份被删了）：地址栏里的 list 也得撤掉。
+      writeQuery()
     }
   } catch (e) {
     listsError.value = errorMessage(e)
@@ -142,11 +146,78 @@ async function loadLists(preferId?: string): Promise<void> {
   }
 }
 
+// ==========================================================================
+// 视角状态 ↔ 地址栏
+// ==========================================================================
+
+/// 选中哪份名录、翻到第几页、搜了什么，全部写进地址栏：从这里的卡片跳到别的页面再
+/// 按后退、刷新页面、把链接发给别人，都能回到同一屏。只写非默认值，所以没筛选时
+/// 链接还是干净的 `/species-lists`。
+function writeQuery(): void {
+  const query: LocationQueryRaw = {}
+  if (selectedId.value !== null) {
+    query.list = selectedId.value
+  }
+  setPage(query, 'page', offset.value, PAGE_SIZE)
+  setText(query, 'q', appliedKeyword.value)
+  // replace：调一次筛选不该在历史里多留一条。另外这也顺手把 `?record=` 从
+  // 地址栏里抹掉（进来时已经用完了）。
+  void router.replace({ query })
+}
+
+/// 地址栏里的选中名录 / 页码 / 搜索词。
+function viewFromRoute(): { listId: string; offset: number; keyword: string } {
+  return {
+    listId: queryText(route.query.list),
+    offset: pageOffset(queryPage(route.query.page), PAGE_SIZE),
+    keyword: queryText(route.query.q),
+  }
+}
+
+/// 换一份名录 / 换一页 / 换搜索词：更新状态、写回地址栏、重新加载。
+async function showList(id: string, nextOffset: number, nextKeyword: string): Promise<void> {
+  selectedId.value = id
+  keyword.value = nextKeyword
+  appliedKeyword.value = nextKeyword
+  offset.value = nextOffset
+  writeQuery()
+  await Promise.all([loadDetail(), loadRecords()])
+}
+
+/// 地址栏变了就跟着变：选中名录 / 页码 / 搜索词三者任一不同才重新加载。
+/// 我们自己 replace 出去的 query 就是当前状态，读出来一样，所以不会重复请求。
+async function syncFromRoute(): Promise<void> {
+  const view = viewFromRoute()
+  // 地址栏里没写名录（比如点顶栏重新进本页）就当还是现在这份。
+  const viewId = view.listId === '' ? selectedId.value : view.listId
+  if (viewId === null) {
+    return
+  }
+  if (
+    viewId === selectedId.value &&
+    view.offset === offset.value &&
+    view.keyword === appliedKeyword.value
+  ) {
+    return
+  }
+  if (viewId !== selectedId.value) {
+    // 名录可能已经不在列表里（被删了 / 链接写错了），交给 loadLists 兜底选一份。
+    await loadLists(viewId, view)
+    return
+  }
+  await showList(viewId, view.offset, view.keyword)
+}
+
 onMounted(async () => {
   // 从「物种检索」/「鸟种清单」的卡片点「编辑」跳过来：`?record=<id>`。
   // 先按 id 取记录（顺便知道它属于哪份名录），选中那份名录后弹出编辑框。
+  // 从记录链进来时不用管页码，编辑框是个弹窗，不依赖列表翻到哪一页。
   const record = await recordFromQuery()
-  await loadLists(record?.list_id)
+  const view = viewFromRoute()
+  await loadLists(
+    record?.list_id ?? (view.listId === '' ? undefined : view.listId),
+    record === null ? view : undefined,
+  )
   if (record !== null) {
     // 编辑框提交时用的名录是「当前选中的这一份」，对不上就不能开，
     // 否则保存会把记录挪到另一份名录里。
@@ -155,10 +226,15 @@ onMounted(async () => {
     } else {
       recordsError.value = '这条记录所属的名录已经不在了'
     }
-    // query 用完就清掉，刷新页面不会再弹一次编辑框。
-    void router.replace({ query: {} })
+    // `?record=` 已经被 loadLists 写回地址栏时抹掉了，刷新不会又弹一次编辑框。
   }
 })
+
+// 地址栏变了但组件没重建（点顶栏的「物种名录」、浏览器前进后退）时跟着变。
+watch(
+  () => route.query,
+  () => void syncFromRoute(),
+)
 
 /// `?record=<id>` 指向的那条记录；没带 / 取不到就返回 null。
 async function recordFromQuery(): Promise<SpeciesRecord | null> {
@@ -185,6 +261,7 @@ function editRecordFromCard(target: SpeciesCardTarget): void {
 async function search(): Promise<void> {
   appliedKeyword.value = keyword.value.trim()
   offset.value = 0
+  writeQuery()
   await loadRecords()
 }
 
@@ -192,11 +269,13 @@ async function clearSearch(): Promise<void> {
   keyword.value = ''
   appliedKeyword.value = ''
   offset.value = 0
+  writeQuery()
   await loadRecords()
 }
 
 async function goToPage(page: number): Promise<void> {
   offset.value = (page - 1) * PAGE_SIZE
+  writeQuery()
   await loadRecords()
 }
 
