@@ -511,6 +511,11 @@ button.link:hover:not(:disabled) {
   max-width: 560px;
 }
 
+/* 鸟调明细里的观察表格列多，卡片要更宽 */
+.modal-detail {
+  max-width: 720px;
+}
+
 /* 注册信息里的字段名比物种卡片的长（「学号 / 工号」），标签列要宽一点 */
 .modal-wide .info-row {
   grid-template-columns: 84px 1fr;

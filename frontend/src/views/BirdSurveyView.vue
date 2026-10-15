@@ -1648,7 +1648,7 @@ onMounted(async () => {
   </dialog>
 
   <!-- 鸟调明细：表头 + 逐条鸟种 -->
-  <dialog ref="detailDialog" class="modal modal-wide" @click.self="closeDetail">
+  <dialog ref="detailDialog" class="modal modal-wide modal-detail" @click.self="closeDetail">
     <template v-if="detail !== null">
       <div class="log-head">
         <h2>{{ detail.survey_date }} 鸟调记录</h2>
