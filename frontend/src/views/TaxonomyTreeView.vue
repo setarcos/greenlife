@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { getTaxon, getTree } from '../api/taxonomy'
@@ -30,8 +30,13 @@ const router = useRouter()
 const canManage = computed(() => auth.canManage)
 
 const tree = ref<TaxonNode[]>([])
+const treeEl = ref<HTMLUListElement | null>(null)
 const treeLoading = ref(false)
 const treeError = ref('')
+
+/// 展开的节点 id。默认全折叠（整棵树 3000+ 节点，不能一次全画出来），
+/// 展开状态提到这里是因为选中一个节点时要把它的祖先链一起展开。
+const expandedIds = ref(new Set<string>())
 
 const selected = ref<TaxonRef | null>(null)
 const detail = ref<TaxonDetail | null>(null)
@@ -50,12 +55,68 @@ async function loadTree(): Promise<void> {
   } finally {
     treeLoading.value = false
   }
+  // 地址栏里的 `?taxon=` 可能比树先到（onMounted 里两者并行），树画出来之后再展开、
+  // 定位一次。要放在 finally 之后：加载中 `.tree` 根本不在 DOM 里，那时拿不到元素。
+  if (selected.value !== null) {
+    await revealInTree(selected.value.id)
+  }
 }
 
 onMounted(async () => {
   // 地址栏里的 `?taxon=` 直接去取那个节点，不用等树加载完。
   await Promise.all([loadTree(), syncFromRoute()])
 })
+
+// ==========================================================================
+// 树的展开 / 定位
+// ==========================================================================
+
+/// 在已加载的树里找 `id` 的祖先（从根到父）。节点不在树里（树还没加载完）时返回 null。
+function ancestorIds(nodes: TaxonNode[], id: string, trail: string[] = []): string[] | null {
+  for (const node of nodes) {
+    if (node.id === id) {
+      return trail
+    }
+    const found = ancestorIds(node.children, id, [...trail, node.id])
+    if (found !== null) {
+      return found
+    }
+  }
+  return null
+}
+
+/// 把 `id` 的祖先链全部展开，让它在左边的树里露出来。
+/// 树是独立的滚动容器（`.tree` 是 max-height + overflow），所以展开完还要把它滚到可见处
+/// —— 否则在右侧详情里逐级点下去，左边虽然展开了却停在原地。
+async function revealInTree(id: string): Promise<void> {
+  const trail = ancestorIds(tree.value, id)
+  if (trail !== null) {
+    for (const ancestorId of trail) {
+      expandedIds.value.add(ancestorId)
+    }
+  }
+  await nextTick()
+  treeEl.value?.querySelector('.tree-row.selected')?.scrollIntoView({ block: 'nearest' })
+}
+
+function toggleExpanded(id: string): void {
+  if (expandedIds.value.has(id)) {
+    expandedIds.value.delete(id)
+  } else {
+    expandedIds.value.add(id)
+  }
+}
+
+/// 选中项一换就展开它的祖先链：点树上的节点（已经看得见）、点右侧详情里的子节点 /
+/// 面包屑、带 `?taxon=` 进页、新增完子节点，走的都是这一条。
+watch(
+  () => selected.value?.id ?? null,
+  (id) => {
+    if (id !== null) {
+      void revealInTree(id)
+    }
+  },
+)
 
 // ==========================================================================
 // 选中的节点 ↔ 地址栏
@@ -310,13 +371,15 @@ async function confirmDelete(): Promise<void> {
       <p v-if="treeLoading" class="muted">加载中…</p>
 
       <div v-else class="tree-split">
-        <ul class="tree">
+        <ul ref="treeEl" class="tree">
           <TaxonTreeNode
             v-for="node in tree"
             :key="node.id"
             :node="node"
             :selected-id="selected === null ? null : selected.id"
+            :expanded-ids="expandedIds"
             @select="selectNode"
+            @toggle="toggleExpanded"
           />
           <li v-if="tree.length === 0" class="muted">分类树还是空的</li>
         </ul>
