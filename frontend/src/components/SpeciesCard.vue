@@ -38,8 +38,7 @@ import NoteText from './NoteText.vue'
 /// 记录本身自带分布 / 备注 / 来源，分类阶元要从 `/taxonomy/taxa/{id}` 取祖先链。
 const props = defineProps<{
   /// 这条记录的编辑入口：传了（且当前用户是 STAFF / ADMIN）才显示「编辑」。
-  /// 编的是记录本身 —— 调用方大多用自己页面上的编辑框，没有编辑框的
-  /// （鸟种清单）就跳到物种名录页去编。
+  /// 编的是记录本身 —— 调用方用自己页面上的编辑弹窗。
   onEditRecord?: (target: SpeciesCardTarget) => void
   /// 隐藏卡片上的「上传照片」入口。重要记录卡片不需要从卡片里传照片
   /// （照片在记录的编辑弹窗里挂），传了以免和记录的编辑入口混在一起。

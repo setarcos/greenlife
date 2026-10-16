@@ -20,10 +20,11 @@ import {
 } from '../api/birdSurveys'
 import { errorMessage } from '../api/http'
 import { createPhoto, listPhotos } from '../api/photos'
-import { findTaxonId, listRecords } from '../api/taxonomy'
+import { findTaxonId, listRecords, listSpeciesLists } from '../api/taxonomy'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import NoteText from '../components/NoteText.vue'
 import ListPager from '../components/ListPager.vue'
+import SpeciesRecordDialog from '../components/SpeciesRecordDialog.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import SpeciesCard, { type SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import { useAuthStore } from '../stores/auth'
@@ -422,12 +423,38 @@ function openCard(record: BirdRecord): void {
   ])
 }
 
-/// 「鸟种清单」卡片里的「编辑」：这些是名录记录，跳到「物种名录」页编。
+/// 「鸟种清单」卡片里的「编辑」：这些是名录记录，就地开弹窗编，编完留在这一屏。
+/// 记录属于哪份名录就还写回哪份 —— 这份清单是跨名录的，名录由记录自己带。
+const speciesRecordDialog = ref<InstanceType<typeof SpeciesRecordDialog> | null>(null)
+/// 名录 id → 名录名，编辑弹窗里的「所属名录」那一行要用。
+const listNames = ref<Record<string, string>>({})
+
+async function loadListNames(): Promise<void> {
+  try {
+    const lists = await listSpeciesLists()
+    listNames.value = Object.fromEntries(lists.map((list) => [list.id, list.name]))
+  } catch {
+    // 拿不到名字只影响弹窗里那一行的显示，不用报错。
+  }
+}
+
 function editSpeciesRecordFromCard(target: SpeciesCardTarget): void {
-  if (target.id === undefined) {
+  const record = speciesRecords.value.find((item) => item.id === target.id)
+  if (record === undefined) {
     return
   }
-  void router.push({ name: 'species-lists', query: { record: target.id } })
+  savedMessage.value = ''
+  speciesRecordDialog.value?.open({
+    listId: record.list_id,
+    listName: listNames.value[record.list_id],
+    record,
+  })
+}
+
+/// 保存成功：回显提示，刷新鸟种清单（名字改了，重要记录的下拉框也跟着变）。
+async function onSpeciesRecordSaved(record: SpeciesRecord, created: boolean): Promise<void> {
+  savedMessage.value = `已${created ? '新增' : '更新'}记录「${record.scientific_name}」`
+  await Promise.all([loadSpeciesRecords(), loadBirdOptions()])
 }
 
 /// 「重要记录」卡片里的「编辑」：记录就在当前这一页，直接把弹窗套上。
@@ -1322,7 +1349,13 @@ onMounted(async () => {
   } catch (e) {
     speciesError.value = errorMessage(e)
   }
-  await Promise.all([loadSpeciesRecords(), loadRecords(), loadBirdOptions(), loadSurveys()])
+  await Promise.all([
+    loadSpeciesRecords(),
+    loadRecords(),
+    loadBirdOptions(),
+    loadListNames(),
+    loadSurveys(),
+  ])
 })
 
 // 地址栏变了但组件没重建（点顶栏的「鸟类调查」、浏览器前进后退）时跟着变。
@@ -1725,6 +1758,9 @@ watch(
   <!-- 点学名 / 中文名打开的重要记录卡片：只看分类阶元与记录信息。
        照片在记录的编辑弹窗里挂，卡片上不再放「上传照片」/「新增记录」入口。 -->
   <SpeciesCard ref="card" :on-edit-record="editBirdRecordFromCard" hide-upload-photo />
+
+  <!-- 鸟种清单里「编辑」就地用的名录记录弹窗（与「物种名录」页共用） -->
+  <SpeciesRecordDialog ref="speciesRecordDialog" @saved="onSpeciesRecordSaved" />
 
   <!-- 导入鸟调 GPX -->
   <dialog ref="importDialog" class="modal modal-wide" @click.self="closeImport">

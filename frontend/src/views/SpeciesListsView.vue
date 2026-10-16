@@ -2,17 +2,16 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { errorMessage } from '../api/http'
-import { getRecord, getSpeciesList, listRecords, listSpeciesLists } from '../api/taxonomy'
+import { getSpeciesList, listRecords, listSpeciesLists } from '../api/taxonomy'
 import {
-  createRecord,
   createSpeciesList,
   deleteRecord,
   deleteSpeciesList,
-  updateRecord,
   updateSpeciesList,
 } from '../api/staffTaxonomy'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ListPager from '../components/ListPager.vue'
+import SpeciesRecordDialog from '../components/SpeciesRecordDialog.vue'
 import SpeciesRecordTable from '../components/SpeciesRecordTable.vue'
 import type { SpeciesCardTarget } from '../components/SpeciesCard.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
@@ -20,13 +19,7 @@ import { useAuthStore } from '../stores/auth'
 import { clampOffset } from '../pagination'
 import { pageOffset, queryPage, queryText, setPage, setText } from '../query'
 import type { SpeciesList, SpeciesListDetail, SpeciesRecord } from '../taxonomy'
-import {
-  LIST_NAME_MAX_CHARS,
-  RECORD_NO_MAX_CHARS,
-  TAXON_NAME_MAX_CHARS,
-  charCount,
-  validateField,
-} from '../validation'
+import { LIST_NAME_MAX_CHARS, validateField } from '../validation'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -73,12 +66,6 @@ const savedMessage = ref('')
 const selectedList = computed(
   () => lists.value.find((list) => list.id === selectedId.value) ?? null,
 )
-
-/// 空串统一转成 null（后端的可选字段用 null 表示清空）。
-function optional(value: string): string | null {
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
-}
 
 async function loadDetail(): Promise<void> {
   const id = selectedId.value
@@ -188,8 +175,7 @@ function writeQuery(): void {
   if (taxonId.value !== null && !descendants.value) {
     query.descendants = '0'
   }
-  // replace：调一次筛选不该在历史里多留一条。另外这也顺手把 `?record=` 从
-  // 地址栏里抹掉（进来时已经用完了）。
+  // replace：调一次筛选不该在历史里多留一条。
   void router.replace({ query })
 }
 
@@ -294,27 +280,10 @@ async function syncFromRoute(): Promise<void> {
 }
 
 onMounted(async () => {
-  // 从「鸟种清单」的卡片点「编辑」跳过来：`?record=<id>`。
-  // 先按 id 取记录（顺便知道它属于哪份名录），选中那份名录后弹出编辑框。
-  // 从记录链进来时不用管页码，编辑框是个弹窗，不依赖列表翻到哪一页。
-  const record = await recordFromQuery()
   const view = viewFromRoute()
   // 类群筛选在加载记录之前落地，第一屏就带上它。
   applyTaxon(view)
-  await loadLists(
-    record?.list_id ?? (view.listId === '' ? undefined : view.listId),
-    record === null ? view : undefined,
-  )
-  if (record !== null) {
-    // 编辑框提交时用的名录是「当前选中的这一份」，对不上就不能开，
-    // 否则保存会把记录挪到另一份名录里。
-    if (selectedId.value === record.list_id) {
-      openEditRecord(record)
-    } else {
-      recordsError.value = '这条记录所属的名录已经不在了'
-    }
-    // `?record=` 已经被 loadLists 写回地址栏时抹掉了，刷新不会又弹一次编辑框。
-  }
+  await loadLists(view.listId === '' ? undefined : view.listId, view)
 })
 
 // 地址栏变了但组件没重建（点顶栏的「物种名录」、浏览器前进后退）时跟着变。
@@ -322,20 +291,6 @@ watch(
   () => route.query,
   () => void syncFromRoute(),
 )
-
-/// `?record=<id>` 指向的那条记录；没带 / 取不到就返回 null。
-async function recordFromQuery(): Promise<SpeciesRecord | null> {
-  const recordId = route.query.record
-  if (typeof recordId !== 'string' || recordId === '') {
-    return null
-  }
-  try {
-    return await getRecord(recordId)
-  } catch (e) {
-    recordsError.value = errorMessage(e)
-    return null
-  }
-}
 
 /// 卡片里的「编辑」：记录就在当前这一页，直接把弹窗套上。
 function editRecordFromCard(target: SpeciesCardTarget): void {
@@ -517,112 +472,30 @@ async function confirmDeleteList(): Promise<void> {
 
 // --- 记录的增 / 改 / 删 ---
 
-const recordDialog = ref<HTMLDialogElement | null>(null)
-/// 每次打开自增，作为 TaxonPicker 的 key —— 强制重建，丢掉上一次的选择。
-const recordFormKey = ref(0)
-const recordForm = reactive({
-  id: null as string | null,
-  taxonId: null as string | null,
-  scientificName: '',
-  chineseName: '',
-  distribution: '',
-  note: '',
-  source: '',
-  recordNo: '',
-  submitting: false,
-  error: '',
-})
-
-function resetRecordForm(): void {
-  recordForm.id = null
-  recordForm.taxonId = null
-  recordForm.scientificName = ''
-  recordForm.chineseName = ''
-  recordForm.distribution = ''
-  recordForm.note = ''
-  recordForm.source = ''
-  recordForm.recordNo = ''
-  recordForm.error = ''
-}
-
-function openRecordDialog(): void {
-  recordFormKey.value += 1
-  if (recordDialog.value !== null && !recordDialog.value.open) {
-    recordDialog.value.showModal()
-  }
-}
+const recordDialog = ref<InstanceType<typeof SpeciesRecordDialog> | null>(null)
 
 function openCreateRecord(): void {
-  savedMessage.value = ''
-  resetRecordForm()
-  openRecordDialog()
-}
-
-function openEditRecord(record: SpeciesRecord): void {
-  savedMessage.value = ''
-  resetRecordForm()
-  recordForm.id = record.id
-  recordForm.taxonId = record.taxon_id
-  recordForm.scientificName = record.scientific_name
-  recordForm.chineseName = record.chinese_name ?? ''
-  recordForm.distribution = record.distribution ?? ''
-  recordForm.note = record.note ?? ''
-  recordForm.source = record.source ?? ''
-  recordForm.recordNo = record.record_no ?? ''
-  openRecordDialog()
-}
-
-function closeRecordDialog(): void {
-  recordDialog.value?.close()
-}
-
-async function submitRecord(): Promise<void> {
-  recordForm.error = ''
   const listId = selectedId.value
   if (listId === null) {
     return
   }
-  if (recordForm.taxonId === null) {
-    recordForm.error = '请选择鉴定到的分类节点'
-    return
-  }
-  const problem = validateField('学名', recordForm.scientificName, TAXON_NAME_MAX_CHARS)
-  if (problem !== '') {
-    recordForm.error = problem
-    return
-  }
-  const recordNo = recordForm.recordNo.trim()
-  if (recordNo !== '' && charCount(recordNo) > RECORD_NO_MAX_CHARS) {
-    recordForm.error = `编号最多 ${RECORD_NO_MAX_CHARS} 个字符`
-    return
-  }
+  savedMessage.value = ''
+  recordDialog.value?.open({ listId, listName: selectedList.value?.name })
+}
 
-  recordForm.submitting = true
-  try {
-    const payload = {
-      list_id: listId,
-      taxon_id: recordForm.taxonId,
-      scientific_name: recordForm.scientificName.trim(),
-      chinese_name: optional(recordForm.chineseName),
-      distribution: optional(recordForm.distribution),
-      note: optional(recordForm.note),
-      source: optional(recordForm.source),
-      record_no: optional(recordForm.recordNo),
-    }
-    if (recordForm.id === null) {
-      const created = await createRecord(payload)
-      savedMessage.value = `已新增记录「${created.scientific_name}」`
-    } else {
-      const updated = await updateRecord(recordForm.id, payload)
-      savedMessage.value = `已更新记录「${updated.scientific_name}」`
-    }
-    closeRecordDialog()
-    await Promise.all([loadDetail(), loadRecords()])
-  } catch (e) {
-    recordForm.error = errorMessage(e)
-  } finally {
-    recordForm.submitting = false
-  }
+function openEditRecord(record: SpeciesRecord): void {
+  savedMessage.value = ''
+  recordDialog.value?.open({
+    listId: record.list_id,
+    listName: selectedList.value?.name,
+    record,
+  })
+}
+
+/// 保存成功：回显提示，并刷新记录数与当前这一页。
+async function onRecordSaved(record: SpeciesRecord, created: boolean): Promise<void> {
+  savedMessage.value = `已${created ? '新增' : '更新'}记录「${record.scientific_name}」`
+  await Promise.all([loadDetail(), loadRecords()])
 }
 
 const recordDeleteDialog = ref<InstanceType<typeof ConfirmDialog> | null>(null)
@@ -812,77 +685,8 @@ async function confirmDeleteRecord(): Promise<void> {
     </form>
   </dialog>
 
-  <!-- 记录的增 / 改 -->
-  <dialog
-    ref="recordDialog"
-    class="modal modal-wide"
-    @close="resetRecordForm"
-    @click.self="closeRecordDialog"
-  >
-    <form @submit.prevent="submitRecord">
-      <h2>{{ recordForm.id === null ? '新增记录' : '编辑记录' }}</h2>
-      <p class="hint">所属名录：{{ selectedList?.name }}</p>
-      <p v-if="recordForm.error" class="alert error">{{ recordForm.error }}</p>
-
-      <div class="field">
-        <label>鉴定到的分类节点（必选；只定到属也可以停在「属」）</label>
-        <TaxonPicker
-          :key="recordFormKey"
-          v-model="recordForm.taxonId"
-          :disabled="recordForm.submitting"
-        />
-      </div>
-
-      <div class="field">
-        <label for="record-scientific-name">学名</label>
-        <input
-          id="record-scientific-name"
-          v-model="recordForm.scientificName"
-          :maxlength="TAXON_NAME_MAX_CHARS"
-          required
-        />
-      </div>
-
-      <div class="field">
-        <label for="record-chinese-name">中文名</label>
-        <input id="record-chinese-name" v-model="recordForm.chineseName" />
-      </div>
-
-      <div class="field">
-        <label for="record-distribution">分布</label>
-        <input id="record-distribution" v-model="recordForm.distribution" />
-      </div>
-
-      <div class="field">
-        <label for="record-note">备注</label>
-        <input id="record-note" v-model="recordForm.note" />
-      </div>
-
-      <div class="field">
-        <label for="record-source">来源</label>
-        <input id="record-source" v-model="recordForm.source" />
-      </div>
-
-      <div class="field">
-        <label for="record-no">编号</label>
-        <input id="record-no" v-model="recordForm.recordNo" :maxlength="RECORD_NO_MAX_CHARS" />
-      </div>
-
-      <div class="actions">
-        <button type="submit" :disabled="recordForm.submitting">
-          {{ recordForm.submitting ? '保存中…' : '保存' }}
-        </button>
-        <button
-          class="secondary"
-          type="button"
-          :disabled="recordForm.submitting"
-          @click="closeRecordDialog"
-        >
-          取消
-        </button>
-      </div>
-    </form>
-  </dialog>
+  <!-- 记录的增 / 改：与「鸟类调查」的鸟种清单共用同一个弹窗 -->
+  <SpeciesRecordDialog ref="recordDialog" @saved="onRecordSaved" />
 
   <ConfirmDialog
     ref="listDeleteDialog"
