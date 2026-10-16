@@ -87,9 +87,19 @@ export async function findTaxonId(
   return taxa.find((taxon) => taxon.scientific_name === scientificName)?.id ?? null
 }
 
-/// GET /taxonomy/lists：所有名录。
-export async function listSpeciesLists(): Promise<SpeciesList[]> {
-  const { data } = await http.get<SpeciesList[]>('/taxonomy/lists')
+export interface ListQuery {
+  /// 只看「有该类群记录」的名录。
+  taxonId?: string
+  /// taxonId 是否连下级类群一起算。
+  descendants?: boolean
+}
+
+/// GET /taxonomy/lists：所有名录。带 `taxonId` 时只返回「有该类群记录」的名录
+/// （名录页拿它决定「选了类群后该看哪一份」）。
+export async function listSpeciesLists(query: ListQuery = {}): Promise<SpeciesList[]> {
+  const { data } = await http.get<SpeciesList[]>('/taxonomy/lists', {
+    params: { taxon_id: query.taxonId, descendants: query.descendants },
+  })
   return data
 }
 

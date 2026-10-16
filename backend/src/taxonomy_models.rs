@@ -416,6 +416,14 @@ pub struct TreeQuery {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct ListQuery {
+    /// 只返回「有该类群记录」的名录（用于「选了类群就跳到相应的名录」）。
+    pub taxon_id: Option<Uuid>,
+    /// taxon_id 是否包含其所有下级。
+    pub descendants: Option<bool>,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct RecordQuery {
     pub list_id: Option<Uuid>,
     pub taxon_id: Option<Uuid>,

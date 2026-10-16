@@ -18,7 +18,7 @@ export interface SpeciesCardTarget {
   record_no?: string | null
   updated_at?: string
   /// 关联的照片（`/uploads/...`）。有则在「分类阶元」右侧显示；
-  /// 没有这个字段的卡片（名录记录 / 物种检索）不显示照片。
+  /// 没有这个字段的卡片（名录记录）不显示照片。
   photo_url?: string | null
 }
 </script>
@@ -37,11 +37,9 @@ import NoteText from './NoteText.vue'
 /// 物种信息卡片：点表格里的学名 / 中文名打开。
 /// 记录本身自带分布 / 备注 / 来源，分类阶元要从 `/taxonomy/taxa/{id}` 取祖先链。
 const props = defineProps<{
-  /// 和 SpeciesRecordTable 同一个函数：传了才显示「名录」。
-  listName?: (listId: string) => string
   /// 这条记录的编辑入口：传了（且当前用户是 STAFF / ADMIN）才显示「编辑」。
-  /// 编的是记录本身 —— 各页面用自己已有的编辑框：名录记录回「物种名录」页、
-  /// 重要记录回「鸟类调查」页；没有编辑框的页面（物种检索）自己跳到有编辑框的页面。
+  /// 编的是记录本身 —— 调用方大多用自己页面上的编辑框，没有编辑框的
+  /// （鸟种清单）就跳到物种名录页去编。
   onEditRecord?: (target: SpeciesCardTarget) => void
   /// 隐藏卡片上的「上传照片」入口。重要记录卡片不需要从卡片里传照片
   /// （照片在记录的编辑弹窗里挂），传了以免和记录的编辑入口混在一起。
@@ -221,10 +219,6 @@ defineExpose({ open })
           </div>
         </template>
         <template v-else>
-          <div v-if="listName && record.list_id" class="info-row">
-            <span class="info-label">名录</span>
-            <span>{{ listName(record.list_id) }}</span>
-          </div>
           <div class="info-row">
             <span class="info-label">分布</span>
             <span>{{ record.distribution ?? '—' }}</span>

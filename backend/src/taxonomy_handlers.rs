@@ -238,13 +238,35 @@ fn build_node(
     Some(node)
 }
 
+/// 名录列表，按 position 排序。
+///
+/// 带 `taxon_id` 时只返回「有该类群记录」的名录 —— 名录页拿它决定「选了类群后
+/// 该看哪一份」：候选集合不写死在前端，新增名录 / 补录记录都自动跟上。
 #[get("/lists")]
-async fn list_lists(pool: web::Data<DbPool>) -> Result<HttpResponse, ServiceError> {
-    let items = blocking_db(pool, |conn| {
-        species_lists::table
-            // 领域顺序由 position 决定（脊椎 > 无脊椎 > 高等植物 > 大型真菌，
-            // 见迁移 2026-10-10-075917）；新名录默认 100，按名字排在后面。
-            .order((species_lists::position.asc(), species_lists::name.asc()))
+async fn list_lists(
+    pool: web::Data<DbPool>,
+    query: web::Query<ListQuery>,
+) -> Result<HttpResponse, ServiceError> {
+    let query = query.into_inner();
+    let items = blocking_db(pool, move |conn| {
+        let taxon_ids = match (query.taxon_id, query.descendants.unwrap_or(false)) {
+            (None, _) => None,
+            (Some(id), false) => Some(vec![id]),
+            (Some(id), true) => Some(descendant_taxon_ids(conn, id)?),
+        };
+
+        let mut q = species_lists::table.into_boxed();
+        if let Some(taxon_ids) = taxon_ids {
+            q = q.filter(diesel::dsl::exists(
+                species_records::table
+                    .filter(species_records::list_id.eq(species_lists::id))
+                    .filter(species_records::taxon_id.eq_any(taxon_ids)),
+            ));
+        }
+
+        // 领域顺序由 position 决定（脊椎 > 无脊椎 > 高等植物 > 大型真菌，
+        // 见迁移 2026-10-10-075917）；新名录默认 100，按名字排在后面。
+        q.order((species_lists::position.asc(), species_lists::name.asc()))
             .select(SpeciesList::as_select())
             .load::<SpeciesList>(conn)
             .map_err(ServiceError::from)

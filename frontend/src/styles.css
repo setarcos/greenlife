@@ -709,21 +709,7 @@ button.name-link:hover:not(:disabled) {
   }
 }
 
-.search-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0 16px;
-  align-items: start;
-}
-
-.search-form .actions {
-  grid-column: 1 / -1;
-}
-
-/* 类群选择收进「高级搜索」，独占一行且默认折叠，让检索页只看得到关键字 */
-.search-form .advanced-search {
-  grid-column: 1 / -1;
-}
+/* 类群选择收进「类群筛选」，默认折叠，让物种名录页的筛选条保持一行 */
 
 .advanced-search > summary {
   display: flex;

@@ -61,8 +61,8 @@ onMounted(async () => {
 // 选中的节点 ↔ 地址栏
 // ==========================================================================
 
-/// 选中的节点写进地址栏：点「查看物种」跳到物种检索、打开物种卡片看照片，之后按后
-/// 退回来还是停在这个节点上；刷新和分享链接也一样。
+/// 选中的节点写进地址栏：点「查看物种」跳到物种名录（带上类群筛选）、打开物种卡片看
+/// 照片，之后按后退回来还是停在这个节点上；刷新和分享链接也一样。
 function writeQuery(id: string | null): void {
   void router.replace({ query: id === null ? {} : { taxon: id } })
 }
@@ -372,7 +372,7 @@ async function confirmDelete(): Promise<void> {
             <div class="actions">
               <RouterLink
                 class="link-button secondary"
-                :to="{ name: 'species-search', query: { taxon: detail.id } }"
+                :to="{ name: 'species-lists', query: { taxon: detail.id } }"
               >
                 查看物种
               </RouterLink>

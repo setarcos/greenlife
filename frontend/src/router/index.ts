@@ -7,7 +7,6 @@ import MaintenanceLogsView from '../views/MaintenanceLogsView.vue'
 import PhotosView from '../views/PhotosView.vue'
 import ProfileView from '../views/ProfileView.vue'
 import SpeciesListsView from '../views/SpeciesListsView.vue'
-import SpeciesSearchView from '../views/SpeciesSearchView.vue'
 import TaxonomyTreeView from '../views/TaxonomyTreeView.vue'
 import UsersView from '../views/UsersView.vue'
 
@@ -18,13 +17,15 @@ export const router = createRouter({
     {
       path: '/',
       component: AppLayout,
-      // 物种浏览（名录 / 分类树 / 检索 / 鸟类调查）是公开的，和后端 /taxonomy、
+      // 物种浏览（名录 / 分类树 / 鸟类调查）是公开的，和后端 /taxonomy、
       // /bird-records 读接口一致；「维护日志」连读都要 STAFF/ADMIN（无权限用户和
       // 游客都进不去），「个人中心」要登录，用户管理要 ADMIN。
       children: [
         { path: '', name: 'species-lists', component: SpeciesListsView },
         { path: 'tree', name: 'taxonomy-tree', component: TaxonomyTreeView },
-        { path: 'search', name: 'species-search', component: SpeciesSearchView },
+        // 原来的「物种检索」已并进物种名录（选名录 + 按类群 / 关键字筛）。老链接
+        // 里的 ?list / ?taxon / ?q / ?page 和名录页同名同义，整包转过去还在同一屏。
+        { path: 'search', redirect: (to) => ({ name: 'species-lists', query: to.query }) },
         { path: 'birds', name: 'bird-survey', component: BirdSurveyView },
         // 物种照片：公开可读，从物种卡片进入（`?taxon=<id>`）。
         { path: 'photos', name: 'photos', component: PhotosView },

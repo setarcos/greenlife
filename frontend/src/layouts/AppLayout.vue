@@ -43,7 +43,6 @@ function toggleManageMode(): void {
     <nav class="nav">
       <RouterLink to="/">物种名录</RouterLink>
       <RouterLink to="/tree">分类树</RouterLink>
-      <RouterLink to="/search">物种检索</RouterLink>
       <RouterLink to="/birds">鸟类调查</RouterLink>
       <!-- 维护日志连读都要 STAFF/ADMIN，游客和无权限用户不显示入口 -->
       <RouterLink v-if="auth.isStaff" to="/logs">维护日志</RouterLink>

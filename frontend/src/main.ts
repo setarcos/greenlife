@@ -15,7 +15,7 @@ const auth = useAuthStore()
 setUnauthorizedHandler(() => {
   auth.logout()
   const current = router.currentRoute.value
-  // 只有受保护的页面才踢回登录页。物种名录 / 分类树 / 检索是公开的，
+  // 只有受保护的页面才踢回登录页。物种名录 / 分类树 / 鸟类调查是公开的，
   // 本地那把过期 token 不应该把游客打断。
   if (current.meta.requiresAuth && current.name !== 'login') {
     void router.replace({ name: 'login', query: { redirect: current.fullPath } })

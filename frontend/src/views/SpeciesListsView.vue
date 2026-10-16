@@ -52,6 +52,21 @@ const offset = ref(0)
 /// 满足筛选条件的总条数（后端分页响应的 total），页码条靠它算总页数。
 const recordsTotal = ref(0)
 
+/// 类群筛选：null 表示不限类群；筛的是**当前这份名录**里的记录（跨名录的检索已并到这里，
+/// 只保留了「先选名录、再按类群筛」这一条路）。换名录时不重置它 —— 从分类树
+/// 「查看物种」进来后想换一份名录接着看同一个类群，不用重新选一遍。
+const taxonId = ref<string | null>(null)
+/// 是否连所选类群的下级一起算（后端 `descendants`）。
+const descendants = ref(true)
+/// 重建 TaxonPicker 用：选择器内部持有状态，从地址栏恢复筛选时要把它丢掉。
+const pickerKey = ref(0)
+/// 类群选择默认折叠；带 `?taxon=`（分类树的「查看物种」）进来时展开。
+const taxonOpen = ref(false)
+
+function onTaxonToggle(event: Event): void {
+  taxonOpen.value = (event.target as HTMLDetailsElement).open
+}
+
 /// 操作成功后 modal 已关，提示回显在卡片里。
 const savedMessage = ref('')
 
@@ -90,6 +105,9 @@ async function loadRecords(): Promise<void> {
   try {
     const page = await listRecords({
       listId: id,
+      taxonId: taxonId.value ?? undefined,
+      // descendants 只在选了类群时才有意义。
+      descendants: taxonId.value === null ? undefined : descendants.value,
       q: appliedKeyword.value === '' ? undefined : appliedKeyword.value,
       limit: PAGE_SIZE,
       offset: offset.value,
@@ -127,7 +145,13 @@ async function loadLists(
   listsError.value = ''
   try {
     lists.value = await listSpeciesLists()
-    const wanted = preferId ?? selectedId.value
+    // 选了类群时，名录要跟着类群走（见 moveToListWithTaxon 的说明）：当前这份里有
+    // 该类群就留下，否则直接选中第一份有的 —— 先加载一份再跳走会闪一下。
+    const withTaxon = await listIdsWithTaxon()
+    let wanted = preferId ?? selectedId.value
+    if (withTaxon !== null && withTaxon.length > 0 && !withTaxon.includes(wanted ?? '')) {
+      wanted = withTaxon[0]
+    }
     if (wanted !== null && lists.value.some((list) => list.id === wanted)) {
       await showList(wanted, view?.offset ?? 0, view?.keyword ?? '')
     } else if (lists.value.length > 0) {
@@ -160,18 +184,73 @@ function writeQuery(): void {
   }
   setPage(query, 'page', offset.value, PAGE_SIZE)
   setText(query, 'q', appliedKeyword.value)
+  setText(query, 'taxon', taxonId.value ?? '')
+  if (taxonId.value !== null && !descendants.value) {
+    query.descendants = '0'
+  }
   // replace：调一次筛选不该在历史里多留一条。另外这也顺手把 `?record=` 从
   // 地址栏里抹掉（进来时已经用完了）。
   void router.replace({ query })
 }
 
-/// 地址栏里的选中名录 / 页码 / 搜索词。
-function viewFromRoute(): { listId: string; offset: number; keyword: string } {
+/// 地址栏里的选中名录 / 页码 / 搜索词 / 类群筛选。
+function viewFromRoute(): {
+  listId: string
+  offset: number
+  keyword: string
+  taxonId: string
+  descendants: boolean
+} {
   return {
     listId: queryText(route.query.list),
     offset: pageOffset(queryPage(route.query.page), PAGE_SIZE),
     keyword: queryText(route.query.q),
+    taxonId: queryText(route.query.taxon),
+    descendants: queryText(route.query.descendants) !== '0',
   }
+}
+
+/// 把地址栏里的类群筛选同步进状态；有变化才重建选择器（它是内部持有状态的组件）。
+function applyTaxon(view: { taxonId: string; descendants: boolean }): boolean {
+  const nextTaxon = view.taxonId === '' ? null : view.taxonId
+  if (nextTaxon === taxonId.value && view.descendants === descendants.value) {
+    return false
+  }
+  taxonId.value = nextTaxon
+  descendants.value = view.descendants
+  pickerKey.value += 1
+  taxonOpen.value = nextTaxon !== null
+  return true
+}
+
+/// 有该类群记录的名录 id（按名录顺序，即 `/taxonomy/lists` 的排序）。
+/// 查不出来时返回 null，调用方当作「不知道」，不去跳名录，也不打断整页加载。
+async function listIdsWithTaxon(): Promise<string[] | null> {
+  const taxon = taxonId.value
+  if (taxon === null) {
+    return []
+  }
+  try {
+    const matched = await listSpeciesLists({ taxonId: taxon, descendants: descendants.value })
+    return matched.map((list) => list.id)
+  } catch {
+    return null
+  }
+}
+
+/// 选中类群后要把「当前这份名录」换到有该类群记录的那一份上（优先留在当前这份）：
+/// 在高等植物名录里选鸟纲不该对着空列表，而是跳到有鸟的脊椎动物名录。
+/// 返回是否换了名录（换了就得多拉一次名录详情）。
+async function moveToListWithTaxon(): Promise<boolean> {
+  const ids = await listIdsWithTaxon()
+  if (ids === null || ids.length === 0) {
+    return false
+  }
+  if (selectedId.value !== null && ids.includes(selectedId.value)) {
+    return false
+  }
+  selectedId.value = ids[0]
+  return true
 }
 
 /// 换一份名录 / 换一页 / 换搜索词：更新状态、写回地址栏、重新加载。
@@ -188,6 +267,8 @@ async function showList(id: string, nextOffset: number, nextKeyword: string): Pr
 /// 我们自己 replace 出去的 query 就是当前状态，读出来一样，所以不会重复请求。
 async function syncFromRoute(): Promise<void> {
   const view = viewFromRoute()
+  // 类群筛选完全由地址栏驱动（分类树的「查看物种」就是靠 `?taxon=` 传进来的）。
+  const taxonChanged = applyTaxon(view)
   // 地址栏里没写名录（比如点顶栏重新进本页）就当还是现在这份。
   const viewId = view.listId === '' ? selectedId.value : view.listId
   if (viewId === null) {
@@ -198,6 +279,10 @@ async function syncFromRoute(): Promise<void> {
     view.offset === offset.value &&
     view.keyword === appliedKeyword.value
   ) {
+    // 只变了类群（浏览器前进 / 后退改的就是它）：不用重选名录，重拉记录即可。
+    if (taxonChanged) {
+      await loadRecords()
+    }
     return
   }
   if (viewId !== selectedId.value) {
@@ -209,11 +294,13 @@ async function syncFromRoute(): Promise<void> {
 }
 
 onMounted(async () => {
-  // 从「物种检索」/「鸟种清单」的卡片点「编辑」跳过来：`?record=<id>`。
+  // 从「鸟种清单」的卡片点「编辑」跳过来：`?record=<id>`。
   // 先按 id 取记录（顺便知道它属于哪份名录），选中那份名录后弹出编辑框。
   // 从记录链进来时不用管页码，编辑框是个弹窗，不依赖列表翻到哪一页。
   const record = await recordFromQuery()
   const view = viewFromRoute()
+  // 类群筛选在加载记录之前落地，第一屏就带上它。
+  applyTaxon(view)
   await loadLists(
     record?.list_id ?? (view.listId === '' ? undefined : view.listId),
     record === null ? view : undefined,
@@ -261,6 +348,10 @@ function editRecordFromCard(target: SpeciesCardTarget): void {
 async function search(): Promise<void> {
   appliedKeyword.value = keyword.value.trim()
   offset.value = 0
+  // 选了类群时先站到有该类群记录的名录上（当前这份里有就不动），再拉记录。
+  if (await moveToListWithTaxon()) {
+    await loadDetail()
+  }
   writeQuery()
   await loadRecords()
 }
@@ -630,6 +721,27 @@ async function confirmDeleteRecord(): Promise<void> {
         </button>
       </form>
 
+      <details class="advanced-search" :open="taxonOpen" @toggle="onTaxonToggle">
+        <summary>
+          <span>类群筛选</span>
+          <span v-if="taxonId !== null" class="tag">已筛选</span>
+          <span class="advanced-toggle">
+            <span class="when-closed">展开</span>
+            <span class="when-open">收起</span>
+          </span>
+        </summary>
+        <div class="advanced-search-body">
+          <p class="hint">
+            逐级选择，选到哪一级就按哪一级筛选，默认含下级；不选则不限类群。改完按「搜索」生效。
+          </p>
+          <TaxonPicker :key="pickerKey" v-model="taxonId" />
+          <label class="checkbox">
+            <input type="checkbox" v-model="descendants" :disabled="taxonId === null" />
+            包含下级类群
+          </label>
+        </div>
+      </details>
+
       <p v-if="recordsError" class="alert error">{{ recordsError }}</p>
 
       <SpeciesRecordTable
@@ -642,7 +754,11 @@ async function confirmDeleteRecord(): Promise<void> {
           <button class="danger" type="button" @click="openDeleteRecord(record)">删除</button>
         </template>
         <template #empty>
-          <span v-if="appliedKeyword !== ''">没有匹配「{{ appliedKeyword }}」的记录</span>
+          <span v-if="appliedKeyword !== '' && taxonId !== null">
+            没有既匹配「{{ appliedKeyword }}」又属于该类群的记录
+          </span>
+          <span v-else-if="appliedKeyword !== ''">没有匹配「{{ appliedKeyword }}」的记录</span>
+          <span v-else-if="taxonId !== null">这份名录里没有该类群的记录</span>
           <span v-else>这份名录还没有记录</span>
         </template>
       </SpeciesRecordTable>
