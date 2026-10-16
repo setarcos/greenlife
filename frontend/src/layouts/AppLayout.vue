@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { usePendingUsersStore } from '../stores/pendingUsers'
 import { roleLabel } from '../types'
 
 const auth = useAuthStore()
 const pendingUsers = usePendingUsersStore()
+const route = useRoute()
 const router = useRouter()
 
 const roleText = computed(() => (auth.user === null ? '' : roleLabel(auth.user.role)))
@@ -25,9 +26,14 @@ watch(
   { immediate: true },
 )
 
+/// 退出登录只改登录态，不跳登录页：公开页面（物种名录 / 分类树 / 鸟类调查）
+/// 留在原地继续当游客看；需要登录的页面（个人中心 / 维护日志 / 用户管理）
+/// 内容依赖 auth.user，留着只会是一片空白，所以退回公开首页。
 async function logout(): Promise<void> {
   auth.logout()
-  await router.push({ name: 'login' })
+  if (route.meta.requiresAuth) {
+    await router.push({ name: 'species-lists' })
+  }
 }
 
 /// 管理界面标签：有 STAFF/ADMIN 权限才显示，点一下在「浏览界面 / 管理界面」
@@ -81,7 +87,14 @@ function toggleManageMode(): void {
       </span>
       <button class="link" type="button" @click="logout">退出登录</button>
     </div>
-    <RouterLink v-else class="login-link" to="/login">登录</RouterLink>
+    <!-- 带上当前页作为来源：登录成功后直接回到这里，不用再自己找回来 -->
+    <RouterLink
+      v-else
+      class="login-link"
+      :to="{ name: 'login', query: { redirect: route.fullPath } }"
+    >
+      登录
+    </RouterLink>
   </header>
   <main class="app-main">
     <RouterView />
