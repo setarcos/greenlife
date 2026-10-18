@@ -18,6 +18,7 @@ export interface BirdRecordQuery {
 }
 
 /// GET /bird-records：分页响应带总数，供页码条用。
+/// 后端按时间倒序返回，最新的记录在最前面（认不出时间的排在末尾）。
 export async function listBirdRecords(query: BirdRecordQuery = {}): Promise<Paged<BirdRecord>> {
   const { data } = await http.get<Paged<BirdRecord>>('/bird-records', {
     params: {

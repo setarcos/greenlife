@@ -33,9 +33,12 @@ use uuid::Uuid;
 /// 可能只是一个月或一年（2023年5月底 / 2007年），把它当成一个点去比较
 /// 会漏掉这些记录，也不能如实回答「2007 年有没有记录」这类问题。
 ///
-/// 排序：先按学名归组（同一物种的记录挨在一起），组内按时间文本升序。
-/// `observed_at` 是原文（2025年3月19日 / 2023年5月底），不是严格日期，
-/// 所以这个顺序只是「大致按时间」，和不写日期的记录一起排在末尾。
+/// 排序：按时间倒序，最新的记录在最前面。
+///
+/// 时间用生成列 `observed_to` 排（不是 `observed_at` 原文——那是给人看的，
+/// 不能比大小）。取区间终点是因为「2023年5月底」比「2023年5月初」新，
+/// 用起点排会把同一个月的「月底」排到「月初」前面去。认不出日期的记录
+/// （`observed_to` 为 NULL）统一排在末尾；同一天的多条按 `id` 定序，保证翻页稳定。
 #[get("")]
 async fn list_bird_records(
     pool: web::Data<DbPool>,
@@ -59,8 +62,8 @@ async fn list_bird_records(
             .get_result::<i64>(conn)?;
         let items = bird_records_query(pattern, from, to)
             .order((
-                bird_records::scientific_name.asc(),
-                bird_records::observed_at.asc().nulls_last(),
+                bird_records::observed_to.desc().nulls_last(),
+                bird_records::observed_from.desc().nulls_last(),
                 bird_records::id.asc(),
             ))
             .limit(limit)
