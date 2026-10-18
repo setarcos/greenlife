@@ -11,6 +11,8 @@ export interface CreateTaxonPayload {
   rank: TaxonomyRank
   scientific_name: string
   chinese_name: string | null
+  /// 根节点必填：这棵树属于哪份名录；非根节点传 null（随根）。
+  list_id: string | null
 }
 
 /// 三态：字段缺失 = 保持不变，`null` = 置为 NULL（移到根 / 清空中文名），

@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { errorMessage } from '../api/http'
-import { getTaxon, getTree } from '../api/taxonomy'
+import { getTaxon, getTree, listSpeciesLists } from '../api/taxonomy'
 import { createTaxon, deleteTaxon, updateTaxon } from '../api/staffTaxonomy'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import TaxonPicker from '../components/TaxonPicker.vue'
@@ -14,6 +14,7 @@ import {
   isStrictlyHigher,
   rankLabel,
   taxonLabel,
+  type SpeciesList,
   type Taxon,
   type TaxonDetail,
   type TaxonNode,
@@ -179,10 +180,15 @@ watch(
 // --- 新增节点 ---
 
 const createDialog = ref<HTMLDialogElement | null>(null)
+/// 名录只在需要时拉（根节点要选名录），`GET /taxonomy/lists` 已经按 position 排好。
+const lists = ref<SpeciesList[]>([])
+const listsError = ref('')
 const createForm = reactive({
   parentId: null as string | null,
   parentRank: null as TaxonomyRank | null,
   parentLabel: '（根节点）',
+  /// 根节点必选：这棵树属于哪份名录。子节点跟着根走，恒为 null。
+  listId: null as string | null,
   /// 新增根节点时的默认阶元：树根通常就是门（见 `RANKS`）。
   rank: 'phylum' as TaxonomyRank,
   scientificName: '',
@@ -202,12 +208,26 @@ function openCreate(parent: TaxonRef | null): void {
   createForm.parentId = parent === null ? null : parent.id
   createForm.parentRank = parent === null ? null : parent.rank
   createForm.parentLabel = parent === null ? '（根节点）' : taxonLabel(parent)
+  createForm.listId = null
   createForm.rank = createRanks.value[0] ?? 'species'
   createForm.scientificName = ''
   createForm.chineseName = ''
   createForm.error = ''
+  if (parent === null && lists.value.length === 0) {
+    void loadLists()
+  }
   if (createDialog.value !== null && !createDialog.value.open) {
     createDialog.value.showModal()
+  }
+}
+
+/// 拉名录供根节点选择。只拉一次；失败了下次打开弹窗再试。
+async function loadLists(): Promise<void> {
+  listsError.value = ''
+  try {
+    lists.value = await listSpeciesLists()
+  } catch (e) {
+    listsError.value = errorMessage(e)
   }
 }
 
@@ -227,17 +247,25 @@ async function submitCreate(): Promise<void> {
     createForm.error = `中文名最多 ${TAXON_NAME_MAX_CHARS} 个字符`
     return
   }
+  if (createForm.parentId === null && createForm.listId === null) {
+    createForm.error = '请选择根节点所属的物种名录'
+    return
+  }
 
   createForm.submitting = true
   try {
     const created = await createTaxon({
       parent_id: createForm.parentId,
+      list_id: createForm.listId,
       rank: createForm.rank,
       scientific_name: createForm.scientificName.trim(),
       chinese_name: chineseName === '' ? null : chineseName,
     })
     closeCreateDialog()
-    savedMessage.value = `已新增节点「${taxonLabel(created)}」`
+    savedMessage.value =
+      created.rank === 'species'
+        ? `已新增节点「${taxonLabel(created)}」，并已在所属名录中添加一条记录`
+        : `已新增节点「${taxonLabel(created)}」`
     await loadTree()
     await selectNode(created)
   } catch (e) {
@@ -465,6 +493,16 @@ async function confirmDelete(): Promise<void> {
       <p class="hint">父节点：{{ createForm.parentLabel }}</p>
       <p v-if="createForm.error" class="alert error">{{ createForm.error }}</p>
 
+      <div v-if="createForm.parentId === null" class="field">
+        <label for="new-taxon-list">物种名录</label>
+        <select id="new-taxon-list" v-model="createForm.listId" required>
+          <option :value="null" disabled>选择这棵树所属的名录</option>
+          <option v-for="list in lists" :key="list.id" :value="list.id">{{ list.name }}</option>
+        </select>
+        <p v-if="listsError" class="alert error">{{ listsError }}</p>
+        <p class="hint">根节点归属的名录决定这棵树里的新种落在哪份名录里。</p>
+      </div>
+
       <div class="field">
         <label for="new-taxon-rank">阶元</label>
         <select id="new-taxon-rank" v-model="createForm.rank">
@@ -489,6 +527,10 @@ async function confirmDelete(): Promise<void> {
         <input id="new-taxon-chinese" v-model="createForm.chineseName" />
       </div>
 
+      <p v-if="createForm.rank === 'species'" class="hint">
+        新增的种会自动在所属名录里添加一条记录（学名、中文名照抄本节点）。
+      </p>
+
       <div class="actions">
         <button type="submit" :disabled="createForm.submitting">
           {{ createForm.submitting ? '保存中…' : '创建' }}
@@ -510,6 +552,9 @@ async function confirmDelete(): Promise<void> {
       <h2>编辑分类节点</h2>
       <p class="hint">
         阶元「{{ rankLabel(editForm.rank) }}」不可修改；改阶元等于移动整棵子树，应该新建节点。
+      </p>
+      <p v-if="editForm.rank === 'species'" class="hint">
+        改名会同步更新所属名录里写着旧名的记录（沿用异名、另起中文名的记录不动）。
       </p>
       <p v-if="editForm.error" class="alert error">{{ editForm.error }}</p>
 

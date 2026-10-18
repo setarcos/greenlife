@@ -149,6 +149,7 @@ diesel::table! {
         chinese_name -> Nullable<Varchar>,
         created_at -> Timestamp,
         updated_at -> Timestamp,
+        list_id -> Nullable<Uuid>,
     }
 }
 
@@ -185,6 +186,7 @@ diesel::joinable!(maintenance_logs -> species_lists (list_id));
 diesel::joinable!(species_photos -> taxa (taxon_id));
 diesel::joinable!(species_records -> species_lists (list_id));
 diesel::joinable!(species_records -> taxa (taxon_id));
+diesel::joinable!(taxa -> species_lists (list_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     bird_records,

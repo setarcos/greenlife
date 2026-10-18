@@ -395,6 +395,29 @@ struct IdRow {
     id: Uuid,
 }
 
+#[derive(QueryableByName)]
+struct RootListRow {
+    #[diesel(sql_type = diesel::sql_types::Nullable<SqlUuid>)]
+    list_id: Option<Uuid>,
+}
+
+/// 节点所在子树的根节点归属的名录（根节点自己的 `list_id` 就是答案）。
+///
+/// 非根节点不存名录归属：一棵树属于哪份名录由根决定，子节点跟着根走。
+fn root_list_id(conn: &mut DbConn, taxon_id: Uuid) -> Result<Option<Uuid>, ServiceError> {
+    diesel::sql_query(
+        "WITH RECURSIVE up(id, parent_id, list_id) AS ( \
+             SELECT id, parent_id, list_id FROM taxa WHERE id = $1 \
+             UNION ALL \
+             SELECT t.id, t.parent_id, t.list_id FROM taxa t JOIN up u ON t.id = u.parent_id \
+         ) SELECT list_id FROM up WHERE parent_id IS NULL",
+    )
+    .bind::<SqlUuid, _>(taxon_id)
+    .load::<RootListRow>(conn)
+    .map(|rows| rows.into_iter().next().and_then(|row| row.list_id))
+    .map_err(ServiceError::from)
+}
+
 /// 分类节点的所有后代 id（含自身），递归 CTE 一次查完。
 pub(crate) fn descendant_taxon_ids(conn: &mut DbConn, root: Uuid) -> Result<Vec<Uuid>, ServiceError> {
     diesel::sql_query(
@@ -427,19 +450,31 @@ async fn create_taxon(
         rank: dto.rank,
         scientific_name: dto.scientific_name,
         chinese_name: dto.chinese_name,
+        list_id: dto.list_id,
     };
 
     let created = blocking_db(pool, move |conn| {
-        check_parent(conn, new.parent_id, new.rank)?;
-        check_sibling_unique(conn, new.parent_id, new.rank, &new.scientific_name, None)?;
-        diesel::insert_into(taxa::table)
-            .values(&new)
-            .execute(conn)?;
-        taxa::table
-            .find(new.id)
-            .select(Taxon::as_select())
-            .first::<Taxon>(conn)
-            .map_err(ServiceError::from)
+        // 建节点和补名录记录要么都成，要么都不留下。
+        conn.transaction::<Taxon, ServiceError, _>(|conn| {
+            if let Some(list_id) = new.list_id {
+                ensure_list_exists(conn, list_id)?;
+            }
+            check_parent(conn, new.parent_id, new.rank)?;
+            check_sibling_unique(conn, new.parent_id, new.rank, &new.scientific_name, None)?;
+            diesel::insert_into(taxa::table)
+                .values(&new)
+                .execute(conn)?;
+
+            if new.rank == TaxonomyRank::Species {
+                add_species_record(conn, new.id)?;
+            }
+
+            taxa::table
+                .find(new.id)
+                .select(Taxon::as_select())
+                .first::<Taxon>(conn)
+                .map_err(ServiceError::from)
+        })
     })
     .await?;
 
@@ -462,43 +497,69 @@ async fn update_taxon(
     let dto = body.into_inner();
 
     let updated = blocking_db(pool, move |conn| {
-        let current = taxa::table
-            .find(taxon_id)
-            .select(Taxon::as_select())
-            .first::<Taxon>(conn)
-            .optional()?
-            .ok_or_else(|| ServiceError::NotFound(format!("Taxon {taxon_id} not found")))?;
+        // 改节点和同步名录记录要么都成，要么都不留下。
+        conn.transaction::<Taxon, ServiceError, _>(|conn| {
+            let old = taxa::table
+                .find(taxon_id)
+                .select(Taxon::as_select())
+                .first::<Taxon>(conn)
+                .optional()?
+                .ok_or_else(|| ServiceError::NotFound(format!("Taxon {taxon_id} not found")))?;
 
-        // 三态合并：None=不改，Some(None)=置 NULL，Some(Some(v))=改成 v。
-        let parent_id = match dto.parent_id {
-            None => current.parent_id,
-            Some(value) => value,
-        };
-        let scientific_name = dto.scientific_name.unwrap_or(current.scientific_name);
-        let chinese_name = match dto.chinese_name {
-            None => current.chinese_name,
-            Some(value) => value,
-        };
+            // 三态合并：None=不改，Some(None)=置 NULL，Some(Some(v))=改成 v。
+            let parent_id = match dto.parent_id {
+                None => old.parent_id,
+                Some(value) => value,
+            };
+            let scientific_name = dto.scientific_name.unwrap_or_else(|| old.scientific_name.clone());
+            let chinese_name = match dto.chinese_name {
+                None => old.chinese_name.clone(),
+                Some(value) => value,
+            };
 
-        check_parent(conn, parent_id, current.rank)?;
-        check_sibling_unique(
-            conn,
-            parent_id,
-            current.rank,
-            &scientific_name,
-            Some(taxon_id),
-        )?;
+            check_parent(conn, parent_id, old.rank)?;
+            check_sibling_unique(conn, parent_id, old.rank, &scientific_name, Some(taxon_id))?;
 
-        diesel::update(taxa::table.find(taxon_id))
-            .set((
-                taxa::parent_id.eq(parent_id),
-                taxa::scientific_name.eq(&scientific_name),
-                taxa::chinese_name.eq(&chinese_name),
-                taxa::updated_at.eq(chrono::Utc::now().naive_utc()),
-            ))
-            .returning(Taxon::as_select())
-            .get_result::<Taxon>(conn)
-            .map_err(ServiceError::from)
+            // 名录归属不可改：改名、换父级都行，但整棵树不能换名录。
+            // 移到根时沿用原来的名录，留在原地（或挂到同一棵树的别处）则不再存归属。
+            let list_id = match parent_id {
+                None => Some(root_list_id(conn, taxon_id)?.ok_or_else(|| {
+                    ServiceError::Conflict(format!(
+                        "taxon {taxon_id} belongs to no species list, cannot become a root"
+                    ))
+                })?),
+                Some(new_parent) => {
+                    if root_list_id(conn, new_parent)? != root_list_id(conn, taxon_id)? {
+                        return Err(ServiceError::Conflict(format!(
+                            "taxon {taxon_id} cannot be moved to a different species list"
+                        )));
+                    }
+                    None
+                }
+            };
+
+            let updated = diesel::update(taxa::table.find(taxon_id))
+                .set((
+                    taxa::parent_id.eq(parent_id),
+                    taxa::scientific_name.eq(&scientific_name),
+                    taxa::chinese_name.eq(&chinese_name),
+                    taxa::list_id.eq(list_id),
+                    taxa::updated_at.eq(chrono::Utc::now().naive_utc()),
+                ))
+                .returning(Taxon::as_select())
+                .get_result::<Taxon>(conn)
+                .map_err(ServiceError::from)?;
+
+            // 改名后把名录里「同一个节点、写着旧名」的记录一起改掉。
+            if updated.rank == TaxonomyRank::Species
+                && (updated.scientific_name != old.scientific_name
+                    || updated.chinese_name != old.chinese_name)
+            {
+                sync_species_records(conn, &old, &updated)?;
+            }
+
+            Ok(updated)
+        })
     })
     .await?;
 
@@ -923,6 +984,83 @@ fn check_record_unique(
         return Err(ServiceError::Conflict(format!(
             "'{scientific_name}' already exists in this species list"
         )));
+    }
+    Ok(())
+}
+
+/// 新增 species 节点后，往这棵树所属的名录里补一条记录。
+///
+/// 记录的学名 / 中文名照抄新节点，其余字段留空，事后在名录里补。
+/// 同一份名录里学名唯一，撞名时返回 409：调用方在事务里，节点也不会留下。
+fn add_species_record(conn: &mut DbConn, taxon_id: Uuid) -> Result<(), ServiceError> {
+    let taxon = taxa::table
+        .find(taxon_id)
+        .select(Taxon::as_select())
+        .first::<Taxon>(conn)
+        .map_err(ServiceError::from)?;
+
+    let list_id = root_list_id(conn, taxon_id)?.ok_or_else(|| {
+        ServiceError::Conflict(format!(
+            "root taxon of '{}' belongs to no species list",
+            taxon.scientific_name
+        ))
+    })?;
+    check_record_unique(conn, list_id, &taxon.scientific_name, None)?;
+
+    let new = NewSpeciesRecord {
+        id: Uuid::new_v4(),
+        list_id,
+        taxon_id,
+        scientific_name: taxon.scientific_name,
+        chinese_name: taxon.chinese_name,
+        distribution: None,
+        note: None,
+        source: None,
+        record_no: None,
+    };
+    diesel::insert_into(species_records::table)
+        .values(&new)
+        .execute(conn)
+        .map_err(ServiceError::from)?;
+    Ok(())
+}
+
+/// 改名后同步名录记录：只动「指向同一个种、且写着旧学名」的那些记录。
+///
+/// 记录的中文名只在原来就和节点一致时才跟着改 —— 名录里另起的中文名属于数据，
+/// 不该被覆盖；沿用异名的记录（学名不同）也不动。
+/// 学名在同一份名录里唯一，改名撞上别的记录时返回 409（调用方在事务里，改名也回滚）。
+fn sync_species_records(
+    conn: &mut DbConn,
+    old: &Taxon,
+    updated: &Taxon,
+) -> Result<(), ServiceError> {
+    let records = species_records::table
+        .filter(species_records::taxon_id.eq(updated.id))
+        .filter(species_records::scientific_name.eq(&old.scientific_name))
+        .select(SpeciesRecord::as_select())
+        .load::<SpeciesRecord>(conn)?;
+
+    let now = chrono::Utc::now().naive_utc();
+    for record in records {
+        check_record_unique(
+            conn,
+            record.list_id,
+            &updated.scientific_name,
+            Some(record.id),
+        )?;
+        let chinese_name = if record.chinese_name == old.chinese_name {
+            updated.chinese_name.clone()
+        } else {
+            record.chinese_name
+        };
+        diesel::update(species_records::table.find(record.id))
+            .set((
+                species_records::scientific_name.eq(&updated.scientific_name),
+                species_records::chinese_name.eq(&chinese_name),
+                species_records::updated_at.eq(now),
+            ))
+            .execute(conn)?;
     }
     Ok(())
 }

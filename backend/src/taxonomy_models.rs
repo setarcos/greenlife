@@ -130,6 +130,8 @@ pub struct Taxon {
     pub rank: TaxonomyRank,
     pub scientific_name: String,
     pub chinese_name: Option<String>,
+    /// 只有根节点有值：这棵树属于哪份名录（见 `CreateTaxonDto::list_id`）。
+    pub list_id: Option<Uuid>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -142,6 +144,7 @@ pub struct NewTaxon {
     pub rank: TaxonomyRank,
     pub scientific_name: String,
     pub chinese_name: Option<String>,
+    pub list_id: Option<Uuid>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -151,12 +154,25 @@ pub struct CreateTaxonDto {
     pub rank: TaxonomyRank,
     pub scientific_name: String,
     pub chinese_name: Option<String>,
+    /// 这棵树属于哪份物种名录。**只有根节点能带**，建根节点时必须给；
+    /// 非根节点跟着根走，传了会被拒绝。
+    pub list_id: Option<Uuid>,
 }
 
 impl CreateTaxonDto {
     pub fn validate(&self) -> Result<(), ServiceError> {
         validate_name("scientific_name", &self.scientific_name, TAXON_NAME_MAX_CHARS)?;
-        validate_opt_name("chinese_name", &self.chinese_name, TAXON_NAME_MAX_CHARS)
+        validate_opt_name("chinese_name", &self.chinese_name, TAXON_NAME_MAX_CHARS)?;
+        match (self.parent_id, self.list_id) {
+            (None, None) => Err(ServiceError::ValidationError(
+                "list_id is required when creating a root taxon".to_string(),
+            )),
+            (Some(_), Some(_)) => Err(ServiceError::ValidationError(
+                "list_id is only allowed on root taxa; child taxa inherit it from their root"
+                    .to_string(),
+            )),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -527,6 +543,7 @@ mod tests {
             rank: TaxonomyRank::Genus,
             scientific_name: "Acer".to_string(),
             chinese_name: Some("槭属".to_string()),
+            list_id: Some(Uuid::new_v4()),
         };
         assert!(ok.validate().is_ok());
 
@@ -535,6 +552,7 @@ mod tests {
             rank: TaxonomyRank::Genus,
             scientific_name: "  ".to_string(),
             chinese_name: None,
+            list_id: Some(Uuid::new_v4()),
         };
         assert!(blank.validate().is_err());
 
@@ -543,8 +561,38 @@ mod tests {
             rank: TaxonomyRank::Genus,
             scientific_name: "x".repeat(TAXON_NAME_MAX_CHARS + 1),
             chinese_name: None,
+            list_id: Some(Uuid::new_v4()),
         };
         assert!(too_long.validate().is_err());
+    }
+
+    #[test]
+    fn only_root_taxa_carry_a_species_list() {
+        let root = CreateTaxonDto {
+            parent_id: None,
+            rank: TaxonomyRank::Phylum,
+            scientific_name: "Arthropoda".to_string(),
+            chinese_name: Some("节肢动物门".to_string()),
+            list_id: Some(Uuid::new_v4()),
+        };
+        assert!(root.validate().is_ok());
+
+        // 根节点必须指定名录，否则这棵树不属于任何名录
+        let root_without_list = CreateTaxonDto {
+            list_id: None,
+            ..root
+        };
+        assert!(root_without_list.validate().is_err());
+
+        // 非根节点的名录归属跟着根走，不接受自己指定
+        let child_with_list = CreateTaxonDto {
+            parent_id: Some(Uuid::new_v4()),
+            rank: TaxonomyRank::Genus,
+            scientific_name: "Acer".to_string(),
+            chinese_name: None,
+            list_id: Some(Uuid::new_v4()),
+        };
+        assert!(child_with_list.validate().is_err());
     }
 
     #[test]

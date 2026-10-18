@@ -48,6 +48,8 @@ export interface Taxon {
   rank: TaxonomyRank
   scientific_name: string
   chinese_name: string | null
+  /// 只有根节点有值：这棵树属于哪份物种名录。子节点跟着根走，恒为 null。
+  list_id: string | null
   created_at: string
   updated_at: string
 }
