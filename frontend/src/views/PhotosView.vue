@@ -19,7 +19,7 @@ import {
 } from '../photos'
 import { useAuthStore } from '../stores/auth'
 import { taxonLabel, type Taxon } from '../taxonomy'
-import { formatTimestamp } from '../types'
+import { formatUtcTimestamp } from '../types'
 
 /// 物种照片页。从物种卡片的「上传照片 / 浏览照片」进来，
 /// URL 上带 `?taxon=<id>`；不带 taxon 时浏览全部照片并按关键字搜索。
@@ -479,7 +479,7 @@ watch(
                   </div>
                   <div class="info-row">
                     <span class="info-label">上传</span>
-                    <span class="muted">{{ formatTimestamp(photo.created_at) }}</span>
+                    <span class="muted">{{ formatUtcTimestamp(photo.created_at) }}</span>
                   </div>
                 </div>
               </details>

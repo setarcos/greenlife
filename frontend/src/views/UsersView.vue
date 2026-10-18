@@ -4,7 +4,14 @@ import { errorMessage } from '../api/http'
 import { approveUser, createUser, deleteUser, listUsers, updateUser } from '../api/users'
 import { useAuthStore } from '../stores/auth'
 import { usePendingUsersStore } from '../stores/pendingUsers'
-import { ROLE_OPTIONS, formatTimestamp, isPending, roleLabel, type Role, type User } from '../types'
+import {
+  ROLE_OPTIONS,
+  formatUtcTimestamp,
+  isPending,
+  roleLabel,
+  type Role,
+  type User,
+} from '../types'
 import {
   NAME_MAX_CHARS,
   USERNAME_MAX_CHARS,
@@ -288,7 +295,7 @@ async function submitEdit(): Promise<void> {
             <td>{{ user.name }}</td>
             <td>{{ user.real_name || '—' }}</td>
             <td class="mono">{{ user.username }}</td>
-            <td class="muted">{{ formatTimestamp(user.created_at) }}</td>
+            <td class="muted">{{ formatUtcTimestamp(user.created_at) }}</td>
             <td class="actions-cell">
               <button type="button" :disabled="approvingId === user.id" @click="approve(user)">
                 {{ approvingId === user.id ? '处理中…' : '通过' }}
@@ -337,7 +344,7 @@ async function submitEdit(): Promise<void> {
             <td>
               <span class="tag">{{ roleLabel(user.role) }}</span>
             </td>
-            <td class="muted">{{ formatTimestamp(user.created_at) }}</td>
+            <td class="muted">{{ formatUtcTimestamp(user.created_at) }}</td>
             <td class="actions-cell">
               <!-- 后端拒绝管理员改自己的权限（400），所以自己那一行不给编辑入口；
                    改自己的密码走「个人中心」 -->
@@ -470,7 +477,7 @@ async function submitEdit(): Promise<void> {
           </div>
           <div class="info-row">
             <span class="muted">注册时间</span>
-            <span>{{ formatTimestamp(detailUser.created_at) }}</span>
+            <span>{{ formatUtcTimestamp(detailUser.created_at) }}</span>
           </div>
         </div>
       </template>

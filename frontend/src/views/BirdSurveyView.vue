@@ -34,7 +34,7 @@ import { clampOffset } from '../pagination'
 import { MAX_PHOTOS_PER_TAXON, validatePhotoFile, type SpeciesPhoto } from '../photos'
 import { pageOffset, queryPage, queryText, setPage, setText } from '../query'
 import { taxonLabel, type SpeciesRecord } from '../taxonomy'
-import { formatTimestamp } from '../types'
+import { formatTimestamp, formatUtcTimestamp } from '../types'
 import {
   BIRD_LOCATION_MAX_CHARS,
   BIRD_NAME_MAX_CHARS,
@@ -419,7 +419,7 @@ function openCard(record: BirdRecord): void {
     { label: '地点', value: record.location },
     { label: '备注', value: record.note },
     { label: '来源', value: record.source },
-    { label: '更新', value: formatTimestamp(record.updated_at) },
+    { label: '更新', value: formatUtcTimestamp(record.updated_at) },
   ])
 }
 

@@ -31,7 +31,7 @@ import { listPhotos } from '../api/photos'
 import { getTaxon } from '../api/taxonomy'
 import { useAuthStore } from '../stores/auth'
 import { RANKS, rankLabel, type Taxon } from '../taxonomy'
-import { formatTimestamp } from '../types'
+import { formatUtcTimestamp } from '../types'
 import NoteText from './NoteText.vue'
 
 /// 物种信息卡片：点表格里的学名 / 中文名打开。
@@ -237,7 +237,7 @@ defineExpose({ open })
           <div class="info-row">
             <span class="info-label">更新</span>
             <span class="muted">{{
-              record.updated_at ? formatTimestamp(record.updated_at) : '—'
+              record.updated_at ? formatUtcTimestamp(record.updated_at) : '—'
             }}</span>
           </div>
         </template>

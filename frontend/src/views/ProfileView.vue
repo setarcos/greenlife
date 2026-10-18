@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { errorMessage } from '../api/http'
 import { useAuthStore } from '../stores/auth'
-import { formatTimestamp, roleLabel } from '../types'
+import { formatUtcTimestamp, roleLabel } from '../types'
 import {
   CONTACT_MAX_CHARS,
   NAME_MAX_CHARS,
@@ -185,7 +185,7 @@ async function submitPassword(): Promise<void> {
           </p>
           <p class="profile-meta muted">
             <span class="mono">{{ auth.user.username }}</span>
-            · 注册于 {{ formatTimestamp(auth.user.created_at) }}
+            · 注册于 {{ formatUtcTimestamp(auth.user.created_at) }}
           </p>
         </div>
         <div class="profile-actions">

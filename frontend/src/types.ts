@@ -60,8 +60,24 @@ export function isPending(role: Role): boolean {
 }
 
 /// 展示用：只把 ISO 的 "T" 换成空格，**不做时区换算**。
-/// 数据库里是 `TIMESTAMP`（不带时区），后端的 NaiveDateTime 也不带时区，
-/// 前端硬套一个时区去解析反而会把时间显示错。
+/// 用在本来就没有时区语义的时间上 —— 比如 `observed_at`（记录人写的、GPX 换算成
+/// 当地时间的观测时刻）。数据库里是 `TIMESTAMP`（不带时区），后端的 NaiveDateTime
+/// 也不带时区，前端硬套一个时区去解析反而会把时间显示错。
+/// 服务端自己写入的 created_at / updated_at 用 `formatUtcTimestamp`。
 export function formatTimestamp(value: string): string {
   return value.replace('T', ' ').slice(0, 16)
+}
+
+/// 展示服务端写入的时间（created_at / updated_at）：库里存的是 UTC，后端用
+/// `Utc::now().naive_utc()` 写、序列化出来却不带时区。这里补上 `Z` 按 UTC 解析，
+/// 再按浏览器所在时区显示，避免国内用户看到早 8 小时的「更新」时间。
+export function formatUtcTimestamp(value: string): string {
+  const iso = /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return formatTimestamp(value)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    ` ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  )
 }
