@@ -1,0 +1,27 @@
+# Greenlife 每日备份定时器。安装步骤见同目录 greenlife-backup.service。
+#
+# 验证时间表达式（不用等到明天）：
+#   systemd-analyze calendar '*-*-* 03:10:00'
+# 看下次触发和上次结果：
+#   systemctl list-timers greenlife-backup.timer
+
+[Unit]
+Description=每日备份 Greenlife 数据库与照片
+
+[Timer]
+# 本地时间 03:10。服务器时区若是 UTC，这里就是 UTC 03:10；
+# 想固定按北京时间跑，可写成带时区的形式（systemd 240+）：
+#   OnCalendar=*-*-* 03:10:00 Asia/Shanghai
+OnCalendar=*-*-* 03:10:00
+
+# 关机/宕机错过的那次，下次开机补跑一次。cron 做不到这点。
+Persistent=true
+
+# 别在整点跟别的定时任务一起砸磁盘。
+RandomizedDelaySec=5min
+AccuracySec=1min
+
+Unit=greenlife-backup.service
+
+[Install]
+WantedBy=timers.target

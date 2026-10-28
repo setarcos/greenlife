@@ -1,0 +1,49 @@
+# Greenlife 备份（由 greenlife-backup.timer 拉起，不需要单独 enable）
+#
+# 安装（路径按实际 DEPLOY_PATH 改，下面的例子是 /srv/greenlife）：
+#   sudo cp utils/greenlife-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now greenlife-backup.timer
+#   systemctl list-timers greenlife-backup.timer
+#   sudo systemctl start greenlife-backup          # 手动立刻跑一次
+#   journalctl -u greenlife-backup -n 50 --no-pager
+#
+# 注意：service 只被 timer 拉起，不要 `enable greenlife-backup.service`。
+
+[Unit]
+Description=Greenlife 备份（PostgreSQL + uploads）
+Documentation=file:/srv/greenlife/utils/backup.sh
+
+[Service]
+Type=oneshot
+
+# 必须是跑后端的那个用户，否则读不到 backend/.env（权限 600），
+# 走 unix socket + peer 认证时也会被 PostgreSQL 拒绝。
+# 取值：systemctl show greenlife -p User
+User=greenlife
+Group=greenlife
+
+ExecStart=/srv/greenlife/utils/backup.sh
+
+# 故意不用 EnvironmentFile：DATABASE_URL 由脚本自己从 backend/.env 读。
+# unit 文件是 644，写进去等于把数据库密码公开；.env 是 600，只给这个用户。
+
+# oneshot 默认继承 DefaultTimeoutStartSec（常见发行版是 90s），
+# 照片目录大时 tar+gzip 超过 90 秒就会被 systemd 直接杀掉。
+TimeoutStartSec=2h
+
+# 备份是纯 IO 活，别跟线上请求抢 CPU 和磁盘。
+Nice=19
+IOSchedulingClass=idle
+UMask=0077
+
+# 沙箱化的几个坑，别顺手打开：
+#   PrivateTmp=yes       —— .env 若是 postgresql:///greenlife?host=/tmp 这种
+#                           unix socket 写法，看不到 /tmp 里的 socket 就连不上库
+#   ProtectSystem=strict —— 备份要写 BACKUP_DIR，得再配 ReadWritePaths
+#   ProtectHome=yes      —— 备份目录落在 /home 下时会写不进去
+# 真要加固，先确认 .env 里的连接方式再说。
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
