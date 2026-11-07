@@ -129,6 +129,62 @@ a {
   background: rgba(255, 255, 255, 0.24);
 }
 
+/* 内容区左上角的 GitHub 斜角缎带：绝对定位在通栏容器 .app-body 的左上角，
+   也就是窗口最左边、header 正下方。rotate(270deg) 把原来的右上角缎带
+   翻到左上角（绕中心转，占位不变）。 */
+.app-body {
+  position: relative;
+}
+
+.github-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  line-height: 0;
+  border: 0;
+  color: #fff;
+  fill: #151513;
+  transform: rotate(270deg);
+}
+
+.github-corner svg {
+  display: block;
+}
+
+.github-corner .octo-arm {
+  transform-origin: 130px 106px;
+}
+
+/* 默认只靠 hover 触发挥爪，触屏设备看不到 hover，那里改成自动摆一下 */
+.github-corner:hover .octo-arm {
+  animation: octocat-wave 560ms ease-in-out;
+}
+
+@keyframes octocat-wave {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  20%,
+  60% {
+    transform: rotate(-25deg);
+  }
+  40%,
+  80% {
+    transform: rotate(10deg);
+  }
+}
+
+@media (max-width: 500px) {
+  .github-corner:hover .octo-arm {
+    animation: none;
+  }
+
+  .github-corner .octo-arm {
+    animation: octocat-wave 560ms ease-in-out;
+  }
+}
+
 .app-main {
   max-width: 960px;
   margin: 0 auto;
