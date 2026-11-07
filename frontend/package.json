@@ -2,6 +2,8 @@
   "name": "greenlife-frontend",
   "private": true,
   "version": "0.1.0",
+  "license": "BSD-3-Clause",
+  "author": "Pluto Yang",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -207,3 +207,11 @@ real_ip_header CF-Connecting-IP;
   网关（Docker 默认 `172.17.0.1`），要把它一并写进 `set_real_ip_from`。
 - nginx 自己跑在容器里时，后端看到的就是容器网关而非回环地址，限流仍会退化成
   全局限流（信任范围写死在 `backend/src/rate_limit.rs`）。
+
+## 许可证
+
+Copyright (c) 2026, Pluto Yang
+
+本项目采用 [BSD 3-Clause License](LICENSE) 发布。允许在保留版权声明、
+许可证条款和免责声明的前提下，以源码或二进制形式再分发与修改；
+未经事先书面许可，不得使用版权持有人或贡献者的名义为衍生作品背书。

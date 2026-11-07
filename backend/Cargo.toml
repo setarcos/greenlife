@@ -2,6 +2,8 @@
 name = "Greenlife"
 version = "0.2.0"
 edition = "2021"
+authors = ["Pluto Yang"]
+license = "BSD-3-Clause"
 
 [dependencies]
 actix-web = "4"
