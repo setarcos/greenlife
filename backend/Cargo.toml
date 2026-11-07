@@ -7,7 +7,9 @@ license = "BSD-3-Clause"
 
 [dependencies]
 actix-web = "4"
-actix-governor = "0.10" # 登录接口限流
+# 登录限流用 governor 本体（MIT）+ 自己的中间件；actix-governor 是 GPL-3.0-or-later，
+# 链接后整个项目就没法用宽松协议发布了，见 src/rate_limit.rs。
+governor = "0.10"
 
 diesel = { version = "2.2.0", features = ["postgres", "r2d2", "uuid", "chrono"] }
 

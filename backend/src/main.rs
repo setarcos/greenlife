@@ -23,7 +23,6 @@ use crate::config::{AppConfig, UPLOAD_URL_PREFIX};
 use crate::db::DbPool;
 use crate::permissions::Permissions;
 use actix_files::Files;
-use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::{get, middleware::Logger, web, App, HttpResponse, HttpServer};
 use diesel::prelude::*;
 use dotenvy::dotenv;
@@ -59,14 +58,9 @@ async fn main() -> std::io::Result<()> {
     // 必须在 HttpServer::new 之外构造：在闭包内构造会让每个 worker 持有独立的
     // 限流器，实际额度变成 worker 数 × burst_size。
     //
-    // 用 RealIpKeyExtractor 而不是默认的 PeerIpKeyExtractor：后者只看 TCP 对端
-    // 地址，nginx 反代时永远是 127.0.0.1，限流会退化成全局限流。
-    let auth_governor = GovernorConfigBuilder::default()
-        .burst_size(5)
-        .seconds_per_request(2)
-        .key_extractor(rate_limit::RealIpKeyExtractor)
-        .finish()
-        .expect("login rate limit config is valid");
+    // 用 rate_limit::RateLimit 而不是直接看 TCP 对端地址：后者在 nginx 反代时
+    // 永远是 127.0.0.1，限流会退化成全局限流（提取逻辑见 rate_limit::client_key）。
+    let auth_limiter = rate_limit::RateLimit::new(5, std::time::Duration::from_secs(2));
 
     // 照片目录。开发环境由后端直接提供静态文件；线上 nginx 的 `location /uploads/`
     // 会先命中，根本不会转发到这里（见 README）。
@@ -88,7 +82,7 @@ async fn main() -> std::io::Result<()> {
             .service(health)
             .service(
                 web::scope("/auth")
-                    .wrap(Governor::new(&auth_governor))
+                    .wrap(auth_limiter.clone())
                     .service(auth_handlers::login)
                     // 登录页上的自助注册：无需认证，创建的账号恒为无权限（NONE）。
                     .service(auth_handlers::register),

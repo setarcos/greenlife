@@ -215,3 +215,8 @@ Copyright (c) 2026, Pluto Yang
 本项目采用 [BSD 3-Clause License](LICENSE) 发布。允许在保留版权声明、
 许可证条款和免责声明的前提下，以源码或二进制形式再分发与修改；
 未经事先书面许可，不得使用版权持有人或贡献者的名义为衍生作品背书。
+
+依赖必须保持与 BSD-3 兼容：Rust 是静态链接，引入一个 GPL 库就会让整个后端
+必须按 GPL 分发。登录限流因此用 MIT 的 `governor` 加自带中间件
+（`backend/src/rate_limit.rs`），而不是 GPL-3.0 的 `actix-governor`。
+加依赖前先看许可证。
