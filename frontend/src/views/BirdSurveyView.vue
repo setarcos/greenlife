@@ -66,7 +66,11 @@ type TabKey = (typeof TABS)[number]['key']
 const tab = ref<TabKey>('species')
 
 /// 切标签页。三个标签的数据在挂载时都拉过，切回来不用重新请求。
+/// 提示位是三个标签共用的，切走就别再带着上一个标签的「已更新…」。
 function selectTab(key: TabKey): void {
+  if (key !== tab.value) {
+    savedMessage.value = ''
+  }
   tab.value = key
   writeQuery()
 }
@@ -1268,7 +1272,11 @@ function applyRouteQuery(): TabKey[] {
   const changed: TabKey[] = []
 
   const tabParam = queryText(query.tab)
-  tab.value = TABS.find((item) => item.key === tabParam)?.key ?? 'species'
+  const nextTab = TABS.find((item) => item.key === tabParam)?.key ?? 'species'
+  if (nextTab !== tab.value) {
+    savedMessage.value = ''
+  }
+  tab.value = nextTab
 
   const speciesPage = pageOffset(queryPage(query.s_page), PAGE_SIZE)
   const speciesWord = queryText(query.s_q)
